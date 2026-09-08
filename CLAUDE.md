@@ -109,14 +109,100 @@ Env var necessarie sul progetto Vercel (production + preview + development):
 
 | Nome | Cosa è |
 |---|---|
-| `DATABASE_URL` | stringa di connessione Neon (pooler) |
-| `DEMO_AUTH_SECRET` | segreto per firmare i token HMAC |
+| `DATABASE_URL` | stringa di connessione Postgres/Neon (usare la stringa **pooler**) |
+| `DEMO_AUTH_SECRET` | segreto per firmare i token HMAC (una stringa casuale) |
 
-I valori li fornisce Lukas a voce/canale sicuro: **non stanno nel repo** e non
-devono finire in un file committato. `.env` e `.vercel` sono in `.gitignore`.
+Senza queste due l'app si apre ma ogni chiamata a `/api/*` risponde errore e
+la sincronizzazione resta spenta. `.env` e `.vercel` sono in `.gitignore`:
+i segreti non devono mai finire in un file committato.
 
-Postgres: progetto Neon `gentle-bread-42589761`, db `neondb`, tabelle
-`scheduler_state`, `presence`, `audit`.
+### 5.1 Primo deploy sull'account IALC (da fare una volta)
+
+Il progetto Vercel e il database attuali stanno sull'account personale di
+Lukas. Alla prima apertura si ricrea tutto sull'account IALC: **il codice non
+va toccato**, cambiano solo progetto Vercel ed env var.
+
+```bash
+# 1. Vercel: login e nuovo progetto legato a questa cartella
+vercel login
+vercel link            # crea un progetto nuovo (es. "ialc-schedulatore")
+                       # framework: Other/None — la configurazione sta in vercel.json
+
+# 2. Database: creare un progetto Postgres su Neon (neon.tech, free tier basta:
+#    0.5 GB, scale-to-zero, nessuna carta) e copiare la connection string pooler
+
+# 3. Creare le 3 tabelle sul database nuovo (SQL Editor di Neon)
+```
+
+```sql
+create table if not exists scheduler_state (
+  id         text primary key,
+  doc        jsonb       not null default '{}'::jsonb,
+  rev        integer     not null default 0,
+  updated_by text,
+  updated_at timestamptz not null default now()
+);
+create table if not exists presence (
+  name      text primary key,
+  tier      integer     not null,
+  last_seen timestamptz not null default now()
+);
+create table if not exists audit (
+  id       text primary key,
+  ts       timestamptz not null default now(),
+  username text,
+  entry    jsonb       not null
+);
+```
+
+```bash
+# 4. Env var (una alla volta, incolla il valore quando le chiede)
+vercel env add DATABASE_URL production
+vercel env add DATABASE_URL preview
+vercel env add DATABASE_URL development
+#    segreto dei token: generane uno nuovo, non serve farselo dare
+openssl rand -hex 32
+vercel env add DEMO_AUTH_SECRET production
+vercel env add DEMO_AUTH_SECRET preview
+vercel env add DEMO_AUTH_SECRET development
+
+# 5. Deploy
+vercel deploy --prod --yes
+```
+
+Poi verifica, sostituendo l'URL restituito dal deploy:
+
+```bash
+# login → deve restituire un token
+curl -s -X POST https://<tuo-url>/api/auth \
+  -H 'content-type: application/json' \
+  -d '{"username":"demo-planner","password":"demo-planner"}'
+
+# lettura dei dati col token → deve restituire { rev, doc }
+curl -s https://<tuo-url>/api/state -H "Authorization: Bearer <token>"
+```
+
+Se `/api/state` risponde 401 il token è sbagliato o scaduto; se risponde 500
+la `DATABASE_URL` è sbagliata o le tabelle non esistono ancora.
+
+Note importanti:
+
+- **L'URL cambia.** `ialc-schedulatore-demo.vercel.app` resta sull'account di
+  Lukas: dopo il deploy comunica il nuovo indirizzo a chi usa l'app.
+- **Il database nuovo parte vuoto**: al primo accesso l'app pubblica il seed
+  del codice (11 dipendenti e 10 fasi reali IALC, commesse e articoli vuoti).
+  Se invece si vogliono portare i dati già inseriti in produzione, chiedi a
+  Lukas il contenuto del documento (`select doc from scheduler_state where
+  id = 'default'`) e inseriscilo nel database nuovo:
+  `insert into scheduler_state (id, doc, rev, updated_by) values ('default', '<json>'::jsonb, 1, 'migrazione');`
+- Cambiando `DEMO_AUTH_SECRET` i token già emessi non valgono più: chi era
+  loggato rifà il login. Normale.
+- Prima di rifare tutto, controlla con `vercel whoami` di non essere ancora
+  loggato con l'account di Lukas.
+
+Riferimento del vecchio ambiente (account Lukas, per la migrazione): progetto
+Vercel `ialc-schedulatore-demo`, progetto Neon `gentle-bread-42589761`,
+db `neondb`, tabelle `scheduler_state`, `presence`, `audit`.
 
 ## 6. Regole di lavoro su questo progetto
 
