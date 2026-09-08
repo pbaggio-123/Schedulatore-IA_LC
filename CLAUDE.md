@@ -135,24 +135,31 @@ vercel link            # crea un progetto nuovo (es. "ialc-schedulatore")
 ```
 
 ```sql
+-- schema identico a quello in produzione (estratto dal database attuale)
 create table if not exists scheduler_state (
-  id         text primary key,
-  doc        jsonb       not null default '{}'::jsonb,
-  rev        integer     not null default 0,
+  id         text        not null,
+  doc        jsonb       not null,
+  rev        bigint      not null default 1,
   updated_by text,
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint scheduler_state_pkey primary key (id)
 );
+
 create table if not exists presence (
-  name      text primary key,
-  tier      integer     not null,
-  last_seen timestamptz not null default now()
+  name      text        not null,
+  tier      integer     not null default 1,
+  last_seen timestamptz not null default now(),
+  constraint presence_pkey primary key (name)
 );
+
 create table if not exists audit (
-  id       text primary key,
+  id       text        not null,
   ts       timestamptz not null default now(),
   username text,
-  entry    jsonb       not null
+  entry    jsonb       not null,
+  constraint audit_pkey primary key (id)
 );
+create index if not exists audit_ts_idx on audit (ts desc);
 ```
 
 ```bash
