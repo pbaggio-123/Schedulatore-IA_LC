@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Production Scheduler"
+version = "1.0.0"
+id = "artifacts/production-scheduler"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18331
+
+[services.development]
+run = "pnpm --filter @workspace/production-scheduler run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/production-scheduler", "run", "build" ]
+publicDir = "artifacts/production-scheduler/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18331"
+BASE_PATH = "/"

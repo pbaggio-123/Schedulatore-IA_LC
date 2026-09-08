@@ -1,0 +1,6 @@
+codice;nome;fasi
+FCG-101;Facciata Continua Demo;Taglio Profili Alluminio|Saldatura Telai Acciaio|Verniciatura a Polvere|Montaggio in Cantiere
+SBA-202;Serramento Battente Demo;Taglio Profili Alluminio|Assemblaggio Anta/Telaio|Vetraggio|Collaudo Tenuta
+PRS-303;Portone Sezionale Demo;Saldatura Telai Acciaio|Assemblaggio Anta/Telaio|Montaggio in Cantiere
+FRS-404;Frangisole Demo;Taglio Profili Alluminio|Verniciatura a Polvere|Collaudo Tenuta
+ERR-999;Articolo con fase inesistente;Fase Fantasma
