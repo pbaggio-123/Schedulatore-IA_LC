@@ -31,7 +31,7 @@ interface Segment { startDay: number; widthDays: number; }
 const LINES = ["L1", "L2", "L3"] as const;
 const DAY_WIDTH   = 34;
 const ROW_HEIGHT  = 44;
-const HEADER_HEIGHT = 52;
+const HEADER_HEIGHT = 56;
 const LINE_LABEL_W  = 56;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -442,31 +442,35 @@ export default function GanttChart() {
         <line x1={0} y1={HEADER_HEIGHT} x2={LINE_LABEL_W + chartWidth} y2={HEADER_HEIGHT}
           stroke="hsl(var(--border))" strokeWidth="1.5" />
 
-        {/* Month + day labels in header */}
+        {/* Month + day labels in header: ogni colonna mostra iniziale giorno
+            settimana (L, M, M, G, V, S, D) sopra e data gg/mm sotto */}
         {(() => {
           let prevMonth = "";
-          return dayInfo.slice(0, totalDays).map(({ d, ds, hol }, i) => {
+          return dayInfo.slice(0, totalDays).map(({ d, hol }, i) => {
             const isToday = d.toDateString() === today.toDateString();
             const isMonday = d.getDay() === 1;
             const monthKey = `${d.getFullYear()}-${d.getMonth()}`;
             const isNewMonth = monthKey !== prevMonth;
             if (isNewMonth) prevMonth = monthKey;
             const x = LINE_LABEL_W + i * DAY_WIDTH;
-            if (!isMonday && !isToday && !isNewMonth) return null;
+            const textColor = isToday ? "#ef4444" : hol ? "#f87171" : "hsl(var(--muted-foreground))";
             return (
               <g key={`hdr-${i}`}>
                 {isNewMonth && (
-                  <text x={x + 3} y={16} fontSize="9" fontFamily="monospace" fontWeight="bold"
+                  <text x={x + 3} y={9} fontSize="8" fontFamily="monospace" fontWeight="bold"
                     fill="rgba(255,255,255,0.35)" style={{ textTransform: "uppercase" }}>
                     {d.toLocaleDateString("it-IT", { month: "short", year: "2-digit" })}
                   </text>
                 )}
-                <line x1={x} y1={isMonday ? 22 : 0} x2={x} y2={HEADER_HEIGHT}
+                <line x1={x} y1={0} x2={x} y2={HEADER_HEIGHT}
                   stroke="hsl(var(--border))" strokeWidth={isMonday ? 1 : 0.5} opacity={0.6} />
-                <text x={x + 3} y={38} fontSize="10" fontFamily="monospace"
-                  fill={isToday ? "#ef4444" : hol ? "#f87171" : "hsl(var(--muted-foreground))"}
-                  fontWeight={isToday ? "bold" : "normal"}>
-                  {d.toLocaleDateString("it-IT", { day: "numeric", weekday: "short" })}
+                <text x={x + DAY_WIDTH / 2} y={26} fontSize="10" fontFamily="monospace"
+                  textAnchor="middle" fill={textColor} fontWeight={isToday ? "bold" : "normal"}>
+                  {d.toLocaleDateString("it-IT", { weekday: "narrow" })}
+                </text>
+                <text x={x + DAY_WIDTH / 2} y={40} fontSize="9" fontFamily="monospace"
+                  textAnchor="middle" fill={textColor} fontWeight={isToday ? "bold" : "normal"}>
+                  {d.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" })}
                 </text>
               </g>
             );
@@ -483,19 +487,6 @@ export default function GanttChart() {
             <text key={`hlbl-${i}`} x={x} y={HEADER_HEIGHT - 4} fontSize="8" fontFamily="monospace"
               fill="#f87171" textAnchor="middle" style={{ pointerEvents: "none" }}>
               {h.name.length > 9 ? h.name.slice(0, 8) + "…" : h.name}
-            </text>
-          );
-        })}
-
-        {/* "S" / "D" in header for weekends */}
-        {dayInfo.slice(0, totalDays).map(({ sat, sun }, i) => {
-          if (!sat && !sun) return null;
-          if (sat && saturdayWorking) return null;
-          const x = LINE_LABEL_W + i * DAY_WIDTH + DAY_WIDTH / 2;
-          return (
-            <text key={`wk-${i}`} x={x} y={HEADER_HEIGHT - 4} fontSize="9" fontFamily="monospace"
-              fill="hsl(var(--muted-foreground))" textAnchor="middle" style={{ pointerEvents: "none" }} opacity={0.7}>
-              {sat ? "S" : "D"}
             </text>
           );
         })}
