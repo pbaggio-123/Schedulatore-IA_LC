@@ -228,7 +228,11 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
           return;
         }
         const res = await fetch(`/api/state?id=${DOC_ID}`, { cache: "no-store", headers: authHeaders() });
-        if (!res.ok) return;
+        if (!res.ok) {
+          console.error(`[sync] pull /api/state -> ${res.status}`);
+          if (!cancelled) setState((s) => ({ ...s, status: "offline" }));
+          return;
+        }
         const data: CloudResponse = await res.json();
         if (cancelled) return;
         if (data.rev > localRev.current && data.doc) {
@@ -284,6 +288,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         if (!res.ok) {
           // Offline o contesa transitoria (503): teniamo il flag dirty, il prossimo
           // ciclo di pull ritenterà il push automaticamente.
+          console.error(`[sync] push /api/state -> ${res.status}`);
           if (!cancelled) setState((s) => ({ ...s, status: "offline" }));
           return;
         }
@@ -335,6 +340,9 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
               await push();
             }
           }
+        } else if (!cancelled) {
+          console.error(`[sync] initialSync /api/state -> ${res.status}`);
+          setState((s) => ({ ...s, status: "offline" }));
         }
       } catch {
         if (!cancelled) setState((s) => ({ ...s, status: "offline" }));
