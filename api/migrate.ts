@@ -10,15 +10,17 @@ const SECRET = process.env.DEMO_AUTH_SECRET || "dev-insecure-secret";
 
 function authorized(req: VercelRequest): boolean {
   const header = req.headers.authorization || "";
-  const expected = `Bearer ${SECRET}`;
-  const a = Buffer.from(header);
-  const b = Buffer.from(expected);
+  const fromHeader = header.startsWith("Bearer ") ? header.slice(7) : "";
+  const fromQuery = typeof req.query.key === "string" ? req.query.key : "";
+  const provided = fromHeader || fromQuery;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(SECRET);
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
+  if (req.method !== "POST" && req.method !== "GET") {
+    res.setHeader("Allow", "GET, POST");
     return res.status(405).json({ error: "Method Not Allowed" });
   }
   if (!authorized(req)) return res.status(401).json({ error: "Unauthorized" });
