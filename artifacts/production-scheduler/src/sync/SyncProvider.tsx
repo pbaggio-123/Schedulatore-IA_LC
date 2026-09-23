@@ -13,6 +13,7 @@ const SYNCED_KEYS = [
   "scheduler_saturday_working",
   "scheduler_skills_ialc",
   "scheduler_shifts_ialc",
+  "scheduler_afan_ialc",
 ] as const;
 
 const DOC_ID = "default";
@@ -103,6 +104,7 @@ const MERGE_SCHEMA: Record<string, NestSchema> = {
   scheduler_catalog_phases_ialc: {},
   scheduler_catalog_products_ialc: {},
   scheduler_shifts_ialc: {},
+  scheduler_afan_ialc: {},
 };
 
 type PatchEntry = {

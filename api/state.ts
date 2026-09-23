@@ -37,6 +37,7 @@ const MERGE_SCHEMA: Record<string, NestSchema> = {
   scheduler_catalog_phases_ialc: {},
   scheduler_catalog_products_ialc: {},
   scheduler_shifts_ialc: {},
+  scheduler_afan_ialc: {},
 };
 
 // Applica un MergeNode (upsert/delete per id, con patch ricorsivo) su un array.

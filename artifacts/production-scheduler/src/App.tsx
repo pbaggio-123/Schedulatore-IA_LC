@@ -11,6 +11,7 @@ import Festivita from "@/pages/Festivita";
 import Catalogo from "@/pages/Catalogo";
 import Capacita from "@/pages/Capacita";
 import Turni from "@/pages/Turni";
+import Afan from "@/pages/Afan";
 import AuditLog from "@/pages/AuditLog";
 import Login from "@/pages/Login";
 import Utenti from "@/pages/Utenti";
@@ -33,6 +34,7 @@ function Router() {
       <Route path="/dashboard"       component={Dashboard} />
       <Route path="/capacita"        component={Capacita} />
       <Route path="/turni"           component={Turni} />
+      <Route path="/afan"            component={Afan} />
       <Route path="/employees"       component={Employees} />
       <Route path="/festivita"       component={Festivita} />
       <Route path="/catalogo"        component={Catalogo} />

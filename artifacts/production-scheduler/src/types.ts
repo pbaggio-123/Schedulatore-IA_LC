@@ -27,6 +27,25 @@ export interface CatalogProduct {
   phaseIds: string[];
 }
 
+/** Riga del registro "Conteggio ore Afan": confronto tempo preventivato (PDP)
+ *  vs tempo effettivo (RTA) per commessa/fase. Campi liberi (come nel foglio
+ *  di origine): niente calcolo automatico, il valore va scritto da chi compila. */
+export interface AfanEntry {
+  id: string;
+  commessaNum: string;
+  commessaName: string;
+  faseCode: string;
+  tempoPreventivato: string;
+  tempoEffettivo: string;
+  differenzaOre: string;
+  totaleOre: string;
+  operatore: string;
+  note: string;
+  sistemaSchuco: string;
+  quantita: string;
+  opNum: string;
+}
+
 export interface Part {
   id: string;
   name: string;

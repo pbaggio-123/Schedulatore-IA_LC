@@ -1,5 +1,6 @@
 import { useLocalStorage } from "./useLocalStorage";
-import { Order, Employee, Holiday, CatalogPhase, CatalogProduct } from "../types";
+import { Order, Employee, Holiday, CatalogPhase, CatalogProduct, AfanEntry } from "../types";
+import { initialAfanEntries } from "../data/afanSeed";
 
 // Dati IALC serramenti reali (roster + catalogo lavorazioni). Le competenze,
 // le fasi standard e i dipendenti rispecchiano gli screen forniti dal cliente.
@@ -66,6 +67,7 @@ export function useSchedulerData() {
   const [catalogProducts,   setCatalogProducts]   = useLocalStorage<CatalogProduct[]> ("scheduler_catalog_products_ialc", initialCatalogProducts);
   const [saturdayWorking,   setSaturdayWorking]   = useLocalStorage<boolean>          ("scheduler_saturday_working",     false);
   const [skills,            setSkills]            = useLocalStorage<string[]>         ("scheduler_skills_ialc",          initialSkills);
+  const [afanEntries,       setAfanEntries]       = useLocalStorage<AfanEntry[]>      ("scheduler_afan_ialc",            initialAfanEntries);
 
   return {
     employees,         setEmployees,
@@ -75,5 +77,6 @@ export function useSchedulerData() {
     catalogProducts,   setCatalogProducts,
     saturdayWorking,   setSaturdayWorking,
     skills,            setSkills,
+    afanEntries,       setAfanEntries,
   };
 }

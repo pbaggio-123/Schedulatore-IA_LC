@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, CalendarX, Sun, Moon, BookOpen, ClipboardList, History, ShieldCheck, LogOut, FileSpreadsheet, Gauge, CalendarClock } from "lucide-react";
+import { LayoutDashboard, Users, CalendarX, Sun, Moon, BookOpen, ClipboardList, History, ShieldCheck, LogOut, FileSpreadsheet, Gauge, CalendarClock, Timer } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth, TIER_LABELS } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { href: "/dashboard",  label: "Pannello",   icon: LayoutDashboard },
     { href: "/capacita",   label: "Capacità",   icon: Gauge },
     { href: "/turni",      label: "Turni",      icon: CalendarClock },
+    { href: "/afan",       label: "Ore Afan",   icon: Timer },
     { href: "/catalogo",   label: "Catalogo",   icon: BookOpen },
     { href: "/employees",  label: "Dipendenti", icon: Users },
     { href: "/festivita",  label: "Festività",  icon: CalendarX },
