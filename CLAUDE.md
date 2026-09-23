@@ -7,9 +7,11 @@
 
 Consegnato da Lukas Ferrazzi (Sharazad / Tacita) — ultimo sviluppo 29/06/2026.
 Questa cartella è il pacchetto ridotto: contiene **solo** ciò che serve a far
-girare e mettere in produzione https://ialc-schedulatore-demo.vercel.app
-(sono stati esclusi la bozza di backend Antigravity, lo stub Express, la
-sandbox mockup e i residui Replit).
+girare e mettere in produzione l'app (sono stati esclusi la bozza di backend
+Antigravity, lo stub Express, la sandbox mockup e i residui Replit).
+
+Dal 17/09/2026 il progetto vive sull'account Vercel/Neon **IALC** (non più
+quello personale di Lukas): vedi §5 per l'URL live e come deployare ora.
 Il `README.md` accanto descrive la demo dal punto di vista dell'utente finale
 (account, cosa mostrare); questo file è per chi sviluppa.
 
@@ -27,7 +29,7 @@ persistenza server. **Non è ancora un gestionale in produzione**: login e
 permessi sono verificati sul server solo per la scrittura dei dati (token
 HMAC + tier), non c'è una vera anagrafica utenti.
 
-Live: https://ialc-schedulatore-demo.vercel.app
+Live: https://ialc-schedulatore.vercel.app
 
 ## 2. Stack e struttura
 
@@ -36,7 +38,8 @@ Monorepo pnpm (eredità Replit).
 - `artifacts/production-scheduler/` — **il frontend, qui vive il 95% del codice**.
   React 18 + Vite 7 + TypeScript + Tailwind + shadcn/ui, react-router.
 - `api/` — funzioni serverless Vercel (Node, CommonJS): `state.ts` (dati),
-  `auth.ts` (token), `presence.ts`, `audit.ts`.
+  `auth.ts` (token), `presence.ts`, `audit.ts`, `kissflow.ts` (ingestione
+  commesse/lotti da Kissflow, vedi §4.1).
 - `lib/` — pacchetti di libreria del monorepo, fra cui lo schema Drizzle del
   modello dati "futuro" (typecheckano, non usati a runtime dalla app).
 - `demo-data/` — CSV/XLSX di esempio per l'import.
@@ -95,32 +98,70 @@ singolo documento JSON `scheduler_state(id='default', doc jsonb, rev)`.
   `DEMO_AUTH_SECRET`). Tutti gli endpoint, **anche in lettura**, richiedono
   `Authorization: Bearer <token>`. Scrittura solo da tier ≥ 2.
 
+### 4.1 Integrazione Kissflow (commesse/lotti)
+
+Dal 23/09/2026 le commesse possono arrivare da Kissflow (board "Programmazione
+Lavori Tecnici") oltre che dall'inserimento manuale: un **item** Kissflow =
+una **commessa**, ogni **subitem** del suo item = un **lotto** (senza fasi:
+quelle si aggiungono a mano in Commessa → dettaglio, come sempre).
+
+- `POST /api/kissflow` — endpoint permanente per l'invio diretto da Kissflow
+  (automazione/API, quando saranno disponibili le credenziali del cliente).
+  Auth: header `Authorization: Bearer <KISSFLOW_API_SECRET>` (secret dedicato,
+  **diverso** da `DEMO_AUTH_SECRET` — non è un login utente).
+  Body JSON:
+  ```json
+  { "items": [ { "item_id": "UT-0839", "title": "25214 Nome cliente…", "assignee": "…", "priority": "…", "status": "…", "requester": "…", "start_date": "", "created_at": "2026-06-10T06:56:01Z" } ],
+    "subitems": [ { "item_id": "UT-0839-07", "subitem_state": "In corso", "subitem_title": "252140A2 - 653 - PMU CW09", "due_date": "" } ] }
+  ```
+  Chiavi già normalizzate come in `lib/importData.ts` (minuscolo, spazi→`_`).
+  Il subitem si collega al suo item padre togliendo il suffisso numerico
+  dall'Item Id (`UT-0839-07` → `UT-0839`); il campo `title` dell'item viene
+  diviso al primo spazio in `orderNumber` + `name` (`"25214 C.M.B. …"` →
+  N° commessa `25214`).
+  **Upsert non distruttivo**: una commessa/lotto già importati (stesso
+  `item_id`) vengono aggiornati, mai duplicati; lotti o fasi aggiunti a mano
+  restano intatti (solo i lotti con lo stesso `item_id` Kissflow vengono
+  sovrascritti). Scrive sullo stesso documento condiviso di `api/state.ts`
+  con lo stesso loop ottimistico (retry su conflitto di `rev`).
+- Import manuale equivalente in **Importa → Commesse da Kissflow**: carica i
+  due file (export CSV item + subitem della board), stessa logica di mappatura
+  (`src/lib/kissflowImport.ts`), anteprima prima di confermare.
+- La mappatura è **duplicata tre volte** (stesso motivo del §4 per
+  `MERGE_SCHEMA`: gli import fuori da `/api` non sono tracciati nel bundle):
+  `src/lib/kissflowImport.ts` (usato dall'import manuale), `api/kissflow.ts`
+  (endpoint permanente). Se cambi la mappatura, aggiorna entrambi.
+- Campi Kissflow extra su `Order`/`Lot` (`kissflowId`, `assignee`, `priority`,
+  `kissflowStatus`, `requester`, `externalStatus`, `dueDate`) sono opzionali e
+  solo informativi: non guidano lo scheduling. Una commessa/lotto senza questi
+  campi (creata a mano) funziona esattamente come prima.
+
 ## 5. Deploy
 
-**Il repo non è collegato a Git su Vercel.** Non esiste un `git push` che
-deploya. Si mette in produzione solo dalla CLI, dalla radice del progetto:
-
-```bash
-vercel whoami            # controlla di essere sull'account giusto
-vercel deploy --prod --yes
-```
+**Dal 17/09/2026 il repo È collegato a Git su Vercel** (progetto
+`ialc-schedulatore`, account IALC): ogni push sul branch di produzione
+rideploya automaticamente. Non serve più `vercel deploy` da CLI.
 
 Env var necessarie sul progetto Vercel (production + preview + development):
 
 | Nome | Cosa è |
 |---|---|
-| `DATABASE_URL` | stringa di connessione Postgres/Neon (usare la stringa **pooler**) |
-| `DEMO_AUTH_SECRET` | segreto per firmare i token HMAC (una stringa casuale) |
+| `DATABASE_URL` | stringa di connessione Postgres/Neon (usare la stringa **pooler**) — impostata dall'integrazione Neon, non toccarla a mano |
+| `DEMO_AUTH_SECRET` | segreto per firmare i token HMAC di login (una stringa casuale) |
+| `KISSFLOW_API_SECRET` | segreto per l'endpoint `/api/kissflow` (vedi §4.1) — diverso da `DEMO_AUTH_SECRET` |
 
-Senza queste due l'app si apre ma ogni chiamata a `/api/*` risponde errore e
-la sincronizzazione resta spenta. `.env` e `.vercel` sono in `.gitignore`:
-i segreti non devono mai finire in un file committato.
+Senza `DATABASE_URL`/`DEMO_AUTH_SECRET` l'app si apre ma ogni chiamata a
+`/api/*` risponde errore e la sincronizzazione resta spenta. `.env` e
+`.vercel` sono in `.gitignore`: i segreti non devono mai finire in un file
+committato.
 
-### 5.1 Primo deploy sull'account IALC (da fare una volta)
+### 5.1 Primo deploy sull'account IALC (fatto il 17/09/2026 — storico)
 
-Il progetto Vercel e il database attuali stanno sull'account personale di
-Lukas. Alla prima apertura si ricrea tutto sull'account IALC: **il codice non
-va toccato**, cambiano solo progetto Vercel ed env var.
+Il progetto Vercel e il database precedenti stavano sull'account personale di
+Lukas; sono stati ricreati sull'account IALC (progetto Vercel
+`ialc-schedulatore`, questa volta collegato a Git). Lasciato qui come
+riferimento se va rifatto da capo su un account nuovo — **il codice non va
+toccato**, cambiano solo progetto Vercel ed env var.
 
 ```bash
 # 1. Vercel: login e nuovo progetto legato a questa cartella
@@ -265,7 +306,9 @@ turni (giornata 8h di default, mezza giornata mattina/pomeriggio 4h, notte),
 colore per tipo di fase (automatico + picker in Catalogo → Fasi), packing di
 più fasi corte nello stesso giorno sulla stessa linea (eccezione: i codici
 `34K`, `34J`, `35B` occupano giornate intere), export Excel e stampa/PDF,
-import CSV/Excel, rebrand IALC con logo reale.
+import CSV/Excel, rebrand IALC con logo reale, deploy su account IALC con Git
+collegato, sezione "Conteggio Ore Afan", import/ingestione commesse da
+Kissflow (manuale + API, vedi §4.1).
 
 Da fare / da verificare:
 
@@ -273,18 +316,42 @@ Da fare / da verificare:
       sull'altro; chiudi e riapri → i dati restano. Il layer API è verificato
       via curl, l'interfaccia a quattro mani no.
 - [ ] Verificare con Paolo/cliente il resto del feedback sulla presentazione.
-- [ ] Le commesse e gli articoli sono **vuoti** per scelta: li inserisce o
-      importa il cliente.
+- [ ] Gli articoli/prodotti del Catalogo sono **vuoti** per scelta: li inserisce
+      o importa il cliente. Le commesse invece ora si possono anche importare
+      da Kissflow (vedi §4.1), oltre che a mano.
 - [ ] Permessi: la UI nasconde i comandi per tier, il server valida solo
       scrittura/tier. Per un uso vero servono utenti reali con password, non
       gli account demo.
 - [ ] I turni non alimentano il Gantt (solo la pagina Capacità li legge).
+- [ ] `/api/kissflow` è pronto ma non ancora collegato a una vera automazione
+      Kissflow (nessuna credenziale API del cliente): per ora si usa solo
+      l'import manuale da CSV in Importa → Commesse da Kissflow.
 
 ## 9. Diario degli sviluppi
 
 Aggiungi qui una riga per sessione: data, cosa hai cambiato, file toccati,
 deployment. Serve alla sessione dopo (tua o di chiunque altro).
 
+- **23/09/2026** — integrazione Kissflow: endpoint `POST /api/kissflow`
+  (ingestione commesse/lotti via API, upsert non distruttivo su lotti/fasi
+  manuali) + import manuale equivalente in Importa → Commesse da Kissflow
+  (`src/lib/kissflowImport.ts`). Inserito il primo esempio del cliente
+  (commessa `25214` / item Kissflow `UT-0839`, 7 lotti) sul database live
+  tramite endpoint temporaneo (rimosso dopo l'uso). Nuovi campi opzionali su
+  `Order`/`Lot` (vedi types.ts) e nuova env var `KISSFLOW_API_SECRET`.
+  File: `types.ts`, `lib/kissflowImport.ts`, `pages/Importa.tsx`,
+  `api/kissflow.ts`, `sync/SyncProvider.tsx` (invariato: nessuna nuova chiave
+  sincronizzata, i dati Kissflow vivono dentro `scheduler_orders_ialc`).
+  Deploy in produzione.
+- **17-23/09/2026** — progetto ricreato sull'account Vercel/Neon IALC (era
+  sull'account personale di Lukas), questa volta con **Git collegato**
+  (auto-deploy sul push); nuova sezione "Conteggio Ore Afan" (registro
+  differenza tempo preventivato/effettivo, dati reali importati da un foglio
+  del cliente, CRUD manuale); fix su `SyncProvider.tsx` (una risposta HTTP
+  non-ok di `/api/state` lasciava lo stato bloccato su "Connessione…" invece
+  di segnare "Offline"); header del Gantt in Pannello: ogni colonna mostra
+  ora iniziale giorno settimana + data gg/mm (prima solo il lunedì/inizio
+  mese).
 - **29/06/2026** — colore per fase + picker in Catalogo, più fasi brevi nello
   stesso giorno, fix fase invisibile se trascinata nel weekend, fix Select
   sovrapposto, token 30 giorni. Deploy in produzione.

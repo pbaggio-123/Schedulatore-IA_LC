@@ -66,6 +66,12 @@ export interface Lot {
   id: string;
   name: string;
   parts: Part[];
+  /** Id del subitem Kissflow di origine (assente se il lotto è manuale). */
+  kissflowId?: string;
+  /** Stato del subitem lato Kissflow (es. "In corso"): solo informativo. */
+  externalStatus?: string;
+  /** Scadenza del subitem lato Kissflow (YYYY-MM-DD): solo informativa. */
+  dueDate?: string;
 }
 
 export interface Order {
@@ -75,6 +81,13 @@ export interface Order {
   startDate: string;
   lots: Lot[];
   color: string;
+  /** Id dell'item Kissflow di origine (assente se la commessa è manuale). */
+  kissflowId?: string;
+  assignee?: string;
+  priority?: string;
+  /** Stato del workflow lato Kissflow (es. "GRAZIA"): solo informativo. */
+  kissflowStatus?: string;
+  requester?: string;
 }
 
 export interface Holiday {
