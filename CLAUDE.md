@@ -347,6 +347,40 @@ Da fare / da verificare:
 Aggiungi qui una riga per sessione: data, cosa hai cambiato, file toccati,
 deployment. Serve alla sessione dopo (tua o di chiunque altro).
 
+- **25/09/2026 (5)** — bug segnalati sul drag appena rilasciato in produzione
+  (§25/09 (4)): "trascino 2 giorni, si sposta di 1 · a volte 3 giorni non si
+  sposta per niente" + "a volte serve un secondo click dopo aver rilasciato
+  il mouse per rilasciare la fase". Causa reale di entrambi: il dialog di
+  proposta a cascata BLOCCAVA la scrittura della fase trascinata finché non
+  si premeva "Conferma" — se l'utente non se ne accorgeva (o chiudeva senza
+  confermare) la fase tornava visivamente alla posizione originale ("non si
+  è spostata"), e comunque il secondo click era percepito come un rilascio
+  mancato. Inoltre la riga della fase trascinata nel dialog mostrava la data
+  RICALCOLATA dal motore (poteva differire dal punto esatto del drop per via
+  dello snap sui giorni lavorativi o della coda di linea), non la data grezza
+  del trascinamento: da qui la percezione di "quanti giorni trascino ≠
+  quanti giorni si sposta". Fix: il rilascio del mouse applica SEMPRE e
+  SUBITO lo spostamento della fase trascinata (data esatta dei pixel
+  trascinati, coerente 1:1 col movimento del mouse) — mai più un secondo
+  click necessario. Se questo sposta di conseguenza anche altre fasi della
+  stessa linea (accodamento automatico) o lascia un buco, si apre DOPO un
+  pannello non bloccante ("Altre fasi impattate") per rivedere/fissare
+  esplicitamente le date di QUELLE altre fasi soltanto — la fase appena
+  trascinata non ne fa più parte, è già a posto; chiudere il pannello senza
+  applicare NON annulla nulla di già fatto, lascia solo le altre fasi
+  "automatiche" (comportamento comunque identico visivamente, il motore le
+  ricalcola comunque). Il click su un buco già presente nel Gantt resta
+  invece un vero "non ancora applicato" (nuovo `context: "drag"|"gap"` su
+  `CascadeProposal` per distinguere il testo/i pulsanti dei due casi). File:
+  `components/GanttChart.tsx` (`commitDrag` riscritto: niente più `return`
+  prima di scrivere `setOrders`; `buildCascadeProposal` chiamato SOLO dopo,
+  con `otherRows` che esclude la fase appena committata). Testato in locale
+  con Playwright: drag di 3 giorni con cascata → fase spostata subito (prima
+  ancora di interagire col pannello) e pannello non bloccante mostrato dopo;
+  chiudere il pannello senza applicare lascia lo spostamento fatto e le
+  altre fasi automatiche; drag isolato di 1 giorno preciso, nessun dialog;
+  click su buco esistente resta un vero "non applicato". Deploy in
+  produzione.
 - **25/09/2026 (4)** — drag nel Pannello con proposta a cascata + buchi di
   produzione. Prima: trascinare una fase nel Gantt scriveva subito la nuova
   `manualStartDate`, e l'accodamento automatico di linea (già esistente,

@@ -49,6 +49,10 @@ interface CascadeRow {
 interface CascadeProposal {
   line: "L1" | "L2" | "L3";
   rows: CascadeRow[];
+  // "drag": lo spostamento che ha innescato la proposta è GIÀ applicato (il
+  // pannello serve solo a rivedere/correggere le altre fasi coinvolte).
+  // "gap": click su un buco esistente, nulla è ancora applicato.
+  context: "drag" | "gap";
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -278,7 +282,7 @@ export default function GanttChart() {
     newDateISO: string,
     destLine: "L1" | "L2" | "L3",
     lineChangeFrom?: "L1" | "L2" | "L3",
-  ): CascadeProposal | null => {
+  ): Omit<CascadeProposal, "context"> | null => {
     const phaseColors: Record<string, string> = {};
     catalogPhases.forEach(ph => { if (ph.color) phaseColors[phaseCodeOf(ph.name)] = ph.color; });
     const overlapMap = overlapMapOf(catalogPhases);
@@ -365,6 +369,13 @@ export default function GanttChart() {
     });
   }, [setOrders]);
 
+  // Il rilascio del mouse applica SEMPRE e SUBITO lo spostamento della fase
+  // trascinata (data esattamente quella trascinata coi pixel, più eventuale
+  // cambio linea): nessun secondo click è mai necessario per "rilasciarla". Se
+  // questo sposta di conseguenza anche altre fasi della stessa linea
+  // (accodamento automatico) o lascia un buco, si apre DOPO un pannello non
+  // bloccante per rivedere/correggere quelle altre date — la fase appena
+  // trascinata è già a posto e non fa più parte di quella proposta.
   const commitDrag = useCallback((d: DragState) => {
     const newStart = addDays(d.origStartDate, d.currentDeltaDays);
     const lineChanged = d.currentLine !== d.origLine;
@@ -374,30 +385,10 @@ export default function GanttChart() {
     const partName = partsWithRow.find(x => x.part.id === d.partId)?.part.name ?? d.partId;
     const newStartISO = formatISODate(newStart);
 
-    if (!dateChanged) {
-      // Solo cambio di linea, nessuno spostamento di data: applica subito,
-      // non c'è nessuna cascata di date da proporre.
-      setOrders(prev => prev.map(o => o.id !== d.orderId ? o : {
-        ...o, lots: o.lots.map(l => l.id !== d.lotId ? l : {
-          ...l, parts: l.parts.map(p => p.id !== d.partId ? p : { ...p, line: d.currentLine }),
-        }),
-      }));
-      addAuditEntry({
-        actionType: "cambio_linea", partId: d.partId, partName,
-        field: "Linea", previousValue: d.origLine, newValue: d.currentLine,
-        notes: "Spostata via Gantt",
-      });
-      return;
-    }
-
-    const proposal = buildCascadeProposal(d.partId, newStartISO, d.currentLine, lineChanged ? d.origLine : undefined);
-    if (proposal) { setCascadeProposal(proposal); return; }
-
-    // Nessun impatto su altre fasi né buchi: applica direttamente (comportamento invariato).
     setOrders(prev => prev.map(o => o.id !== d.orderId ? o : {
       ...o, lots: o.lots.map(l => l.id !== d.lotId ? l : {
         ...l, parts: l.parts.map(p => p.id !== d.partId ? p : {
-          ...p, line: d.currentLine, manualStartDate: newStartISO,
+          ...p, line: d.currentLine, ...(dateChanged ? { manualStartDate: newStartISO } : {}),
         }),
       }),
     }));
@@ -408,11 +399,24 @@ export default function GanttChart() {
         notes: "Spostata via Gantt",
       });
     }
-    addAuditEntry({
-      actionType: "cambio_data", partId: d.partId, partName,
-      field: "Inizio", previousValue: formatISODate(d.origStartDate), newValue: newStartISO,
-      notes: "Spostata via Gantt",
-    });
+    if (dateChanged) {
+      addAuditEntry({
+        actionType: "cambio_data", partId: d.partId, partName,
+        field: "Inizio", previousValue: formatISODate(d.origStartDate), newValue: newStartISO,
+        notes: "Spostata via Gantt",
+      });
+    }
+
+    if (!dateChanged) return; // solo cambio linea: nessuna cascata di date da rivedere
+
+    // buildCascadeProposal ritorna non-null solo se c'è un impatto reale (altre
+    // fasi la cui data cambia, o un buco): se otherRows risulta vuoto qui è
+    // solo perché l'impatto era esclusivamente un buco, non un errore da
+    // ignorare — il pannello va mostrato comunque per segnalarlo.
+    const proposal = buildCascadeProposal(d.partId, newStartISO, d.currentLine, lineChanged ? d.origLine : undefined);
+    if (!proposal) return; // nessun impatto su altre fasi né buchi: fatto
+    const otherRows = proposal.rows.filter(r => r.partId !== d.partId);
+    setCascadeProposal({ line: proposal.line, rows: otherRows, context: "drag" });
   }, [setOrders, partsWithRow, buildCascadeProposal]);
 
   // ── Click su un buco di produzione: propone di richiudere la fase successiva ─
@@ -422,11 +426,12 @@ export default function GanttChart() {
     if (!candidatePart) return;
     const newDateISO = formatISODate(gap.startDate);
     const proposal = buildCascadeProposal(candidatePart.id, newDateISO, gap.line);
-    if (proposal) { setCascadeProposal(proposal); return; }
+    if (proposal) { setCascadeProposal({ ...proposal, context: "gap" }); return; }
     // Nessun impatto su altre fasi: propone comunque la chiusura del buco,
     // dato che l'utente ha cliccato apposta per risolverlo.
     setCascadeProposal({
       line: gap.line,
+      context: "gap",
       rows: [{
         partId: candidatePart.id, orderId: candidatePart.orderId, lotId: candidatePart.lotId,
         name: candidatePart.name, orderName: candidatePart.orderName, lotName: candidatePart.lotName,
@@ -981,17 +986,23 @@ export default function GanttChart() {
            su un buco di produzione già presente) ── */}
       <Dialog open={!!cascadeProposal} onOpenChange={o => !o && setCascadeProposal(null)}>
         <DialogContent className="sm:max-w-[560px]">
-          <DialogHeader><DialogTitle>Proposta nuove date — Linea {cascadeProposal?.line}</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>
+              {cascadeProposal?.context === "drag" ? "Altre fasi impattate" : "Proposta nuove date"} — Linea {cascadeProposal?.line}
+            </DialogTitle>
+          </DialogHeader>
           {cascadeProposal && (() => {
-            const otherCount = cascadeProposal.rows.length - 1;
+            const isDrag = cascadeProposal.context === "drag";
+            const otherCount = cascadeProposal.rows.length;
             const fmt = (iso: string) => new Date(iso + "T00:00:00").toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" });
             return (
               <div className="flex flex-col gap-4 py-2">
                 <p className="text-xs text-muted-foreground">
-                  {otherCount > 0
-                    ? `Questo spostamento sposta di conseguenza anche altre ${otherCount} fase/i sulla linea ${cascadeProposal.line} (accodamento automatico). `
-                    : ""}
-                  Puoi correggere la data di inizio proposta per ciascuna fase prima di confermare.
+                  {isDrag
+                    ? (otherCount > 0
+                        ? `Lo spostamento è già stato applicato. Di conseguenza cambierebbe anche la data calcolata di altre ${otherCount} fase/i sulla linea ${cascadeProposal.line} (accodamento automatico): puoi lasciarle così (restano automatiche) o fissarle esplicitamente alle date qui sotto, che puoi correggere.`
+                        : "Lo spostamento è già stato applicato.")
+                    : "Puoi correggere la data di inizio proposta per ciascuna fase prima di applicare."}
                 </p>
                 {cascadeGaps.length > 0 && (
                   <div className="flex flex-col gap-1 bg-amber-500/10 border border-amber-500/40 rounded p-2">
@@ -1004,6 +1015,7 @@ export default function GanttChart() {
                     ))}
                   </div>
                 )}
+                {cascadeProposal.rows.length > 0 && (
                 <div className="max-h-72 overflow-y-auto border border-border rounded">
                   <table className="w-full text-xs text-left">
                     <thead className="bg-muted text-muted-foreground uppercase sticky top-0">
@@ -1043,14 +1055,19 @@ export default function GanttChart() {
                     </tbody>
                   </table>
                 </div>
+                )}
                 <div className="flex justify-end gap-2 pt-2">
-                  <Button variant="outline" onClick={() => setCascadeProposal(null)} data-testid="button-cascade-cancel">Annulla</Button>
-                  <Button
-                    onClick={() => { applyCascadeRows(cascadeProposal.rows); setCascadeProposal(null); }}
-                    data-testid="button-cascade-confirm"
-                  >
-                    Conferma
+                  <Button variant="outline" onClick={() => setCascadeProposal(null)} data-testid="button-cascade-cancel">
+                    {isDrag ? "Chiudi" : "Annulla"}
                   </Button>
+                  {cascadeProposal.rows.length > 0 && (
+                    <Button
+                      onClick={() => { applyCascadeRows(cascadeProposal.rows); setCascadeProposal(null); }}
+                      data-testid="button-cascade-confirm"
+                    >
+                      {isDrag ? "Fissa queste date" : "Applica"}
+                    </Button>
+                  )}
                 </div>
               </div>
             );
