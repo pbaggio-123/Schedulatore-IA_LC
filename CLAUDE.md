@@ -347,6 +347,37 @@ Da fare / da verificare:
 Aggiungi qui una riga per sessione: data, cosa hai cambiato, file toccati,
 deployment. Serve alla sessione dopo (tua o di chiunque altro).
 
+- **25/09/2026 (6)** — 2 bug reali trovati testando il fix precedente (§25/09
+  (5)), entrambi con screenshot dell'utente. (1) **Il drag "non si spostava
+  proprio" quando il rilascio del mouse cadeva sopra una zona di buco**: i
+  buchi hanno un `onMouseUp` con `stopPropagation()` per non far scattare
+  anche il toggle-chiusura del `<svg>` — ma se il rilascio del drag cade
+  fisicamente su quella zona (capita spesso: si trascina proprio VERSO uno
+  spazio vuoto), lo stesso `stopPropagation()` inghiottiva il mouseup PRIMA
+  che arrivasse al gestore che applica lo spostamento. Fix: il buco ferma la
+  propagazione solo se NON è in corso un drag (`if (!drag) e.stopPropagation()`),
+  altrimenti lascia risalire l'evento come sempre. (2) **Il pannello "Altre
+  fasi impattate" con un buco ma nessun'altra fase impattata non aveva nulla
+  di editabile** (solo l'avviso + "Chiudi", come da screenshot): la fase
+  appena trascinata veniva esclusa dall'elenco perché "già applicata". Fix:
+  la fase trascinata resta SEMPRE nell'elenco, editabile (Attuale=Proposta=
+  valore appena scritto, così riaprire senza toccare nulla non riscrive due
+  volte). In più, il filtro "solo buchi nuovi" confrontava le date esatte
+  prima/dopo: un buco delimitato dalla fase appena spostata trasla insieme a
+  lei e sembra sempre "nuovo" anche quando è lo stesso spazio vuoto di
+  sempre (es. una commessa isolata, lontana dalle altre) — riapriva il
+  pannello ad ogni minimo spostamento anche banale. Fix: `buildCascadeProposal`
+  ora conta come "da segnalare" solo i buchi ADIACENTI alla fase appena
+  spostata E che NON si sovrappongono a un buco già presente prima del drag.
+  Titolo/dialog unificati ("Verifica spostamento", tabella sempre visibile,
+  nessun ramo condizionale nascosto) per i due contesti (drag vs click su un
+  buco esistente). File: `components/GanttChart.tsx`. Testato in locale con
+  Playwright: rilascio del mouse esattamente sopra una zona di buco (si
+  spostava comunque, prima falliva), buco genuino ancora rilevato e mostrato
+  coi due (o più) row editabili, buco isolato/preesistente non riapre più il
+  pannello ad ogni drag successivo sulla stessa linea, tutte le regressioni
+  precedenti (toggle chiusura, edit inline, dialog correzione, gap-click)
+  ancora verdi. Deploy in produzione.
 - **25/09/2026 (5)** — bug segnalati sul drag appena rilasciato in produzione
   (§25/09 (4)): "trascino 2 giorni, si sposta di 1 · a volte 3 giorni non si
   sposta per niente" + "a volte serve un secondo click dopo aver rilasciato

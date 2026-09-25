@@ -282,6 +282,14 @@ export default function GanttChart() {
     newDateISO: string,
     destLine: "L1" | "L2" | "L3",
     lineChangeFrom?: "L1" | "L2" | "L3",
+    // Conta solo i buchi ADIACENTI alla fase appena spostata (che iniziano
+    // esattamente dove finisce, o finiscono esattamente dove inizia): un buco
+    // preesistente e scollegato altrove sulla linea non deve riaprire il
+    // pannello ad ogni minimo spostamento successivo su quella stessa linea.
+    // Nota: confrontare i buchi "prima vs dopo" per data esatta NON funziona,
+    // perché un buco delimitato dalla fase appena spostata trasla insieme a
+    // lei — sembrerebbe sempre "nuovo" anche quando è lo stesso buco di sempre.
+    onlyAdjacentGaps = false,
   ): Omit<CascadeProposal, "context"> | null => {
     const phaseColors: Record<string, string> = {};
     catalogPhases.forEach(ph => { if (ph.color) phaseColors[phaseCodeOf(ph.name)] = ph.color; });
@@ -323,7 +331,23 @@ export default function GanttChart() {
       }
     });
 
-    const candidateGaps = findLineGaps(candidate.filter(p => p.line === destLine), holidays, saturdayWorking);
+    let candidateGaps = findLineGaps(candidate.filter(p => p.line === destLine), holidays, saturdayWorking);
+    if (onlyAdjacentGaps) {
+      const baselineGaps = findLineGaps(baseline.filter(p => p.line === destLine), holidays, saturdayWorking);
+      candidateGaps = candidateGaps.filter(g => {
+        const isAdjacent = g.startDate.getTime() === changedCandidate.endDate.getTime()
+          || g.endDate.getTime() === changedCandidate.startDate.getTime();
+        if (!isAdjacent) return false;
+        // Un buco isolato "di coda" (es. una commessa lontana dalle altre) si
+        // sposta insieme alla fase trascinata: non è nuovo, è lo stesso spazio
+        // vuoto di sempre, solo con il bordo traslato. Lo consideriamo nuovo
+        // solo se NON si sovrappone a un buco già presente prima del drag.
+        const overlapsPreexisting = baselineGaps.some(bg =>
+          bg.startDate.getTime() < g.endDate.getTime() && bg.endDate.getTime() > g.startDate.getTime(),
+        );
+        return !overlapsPreexisting;
+      });
+    }
     if (rows.length <= 1 && candidateGaps.length === 0) return null;
 
     return { line: destLine, rows };
@@ -409,14 +433,20 @@ export default function GanttChart() {
 
     if (!dateChanged) return; // solo cambio linea: nessuna cascata di date da rivedere
 
-    // buildCascadeProposal ritorna non-null solo se c'è un impatto reale (altre
-    // fasi la cui data cambia, o un buco): se otherRows risulta vuoto qui è
-    // solo perché l'impatto era esclusivamente un buco, non un errore da
-    // ignorare — il pannello va mostrato comunque per segnalarlo.
-    const proposal = buildCascadeProposal(d.partId, newStartISO, d.currentLine, lineChanged ? d.origLine : undefined);
-    if (!proposal) return; // nessun impatto su altre fasi né buchi: fatto
-    const otherRows = proposal.rows.filter(r => r.partId !== d.partId);
-    setCascadeProposal({ line: proposal.line, rows: otherRows, context: "drag" });
+    // Solo buchi ADIACENTI alla fase appena spostata: una linea con un buco
+    // preesistente e scollegato non deve riaprire il pannello ad ogni
+    // spostamento successivo, anche minimo, su quella linea.
+    const proposal = buildCascadeProposal(d.partId, newStartISO, d.currentLine, lineChanged ? d.origLine : undefined, true);
+    if (!proposal) return; // nessun impatto su altre fasi né buchi adiacenti: fatto
+    // La fase appena trascinata resta SEMPRE nell'elenco (editabile: può
+    // servire una correzione fine) — "Attuale"/"Proposta" puntano entrambe al
+    // valore già scritto sopra, non a quello (eventualmente diverso per snap
+    // sui giorni lavorativi) ricalcolato dal motore, così riaprendo il
+    // pannello senza toccare nulla non si riscrive lo stesso valore due volte.
+    const rows = proposal.rows.map(r => r.partId === d.partId
+      ? { ...r, currentDate: newStartISO, proposedDate: newStartISO }
+      : r);
+    setCascadeProposal({ line: proposal.line, rows, context: "drag" });
   }, [setOrders, partsWithRow, buildCascadeProposal]);
 
   // ── Click su un buco di produzione: propone di richiudere la fase successiva ─
@@ -683,7 +713,7 @@ export default function GanttChart() {
           return (
             <g key={`gap-${gi}`}
               style={{ cursor: canResolve ? "pointer" : "default" }}
-              onMouseUp={e => e.stopPropagation()}
+              onMouseUp={e => { if (!drag) e.stopPropagation(); }}
               onClick={e => { e.stopPropagation(); if (canResolve) handleGapClick(g); }}
             >
               <rect x={x} y={y} width={w} height={h}
@@ -987,22 +1017,17 @@ export default function GanttChart() {
       <Dialog open={!!cascadeProposal} onOpenChange={o => !o && setCascadeProposal(null)}>
         <DialogContent className="sm:max-w-[560px]">
           <DialogHeader>
-            <DialogTitle>
-              {cascadeProposal?.context === "drag" ? "Altre fasi impattate" : "Proposta nuove date"} — Linea {cascadeProposal?.line}
-            </DialogTitle>
+            <DialogTitle>Verifica spostamento — Linea {cascadeProposal?.line}</DialogTitle>
           </DialogHeader>
           {cascadeProposal && (() => {
             const isDrag = cascadeProposal.context === "drag";
-            const otherCount = cascadeProposal.rows.length;
             const fmt = (iso: string) => new Date(iso + "T00:00:00").toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" });
             return (
               <div className="flex flex-col gap-4 py-2">
                 <p className="text-xs text-muted-foreground">
                   {isDrag
-                    ? (otherCount > 0
-                        ? `Lo spostamento è già stato applicato. Di conseguenza cambierebbe anche la data calcolata di altre ${otherCount} fase/i sulla linea ${cascadeProposal.line} (accodamento automatico): puoi lasciarle così (restano automatiche) o fissarle esplicitamente alle date qui sotto, che puoi correggere.`
-                        : "Lo spostamento è già stato applicato.")
-                    : "Puoi correggere la data di inizio proposta per ciascuna fase prima di applicare."}
+                    ? "Lo spostamento è già stato applicato. Se serve, correggi qui sotto la data della fase appena spostata o di altre fasi impattate sulla stessa linea (accodamento automatico)."
+                    : "Correggi se necessario la data di inizio proposta per chiudere il buco di produzione."}
                 </p>
                 {cascadeGaps.length > 0 && (
                   <div className="flex flex-col gap-1 bg-amber-500/10 border border-amber-500/40 rounded p-2">
@@ -1015,7 +1040,6 @@ export default function GanttChart() {
                     ))}
                   </div>
                 )}
-                {cascadeProposal.rows.length > 0 && (
                 <div className="max-h-72 overflow-y-auto border border-border rounded">
                   <table className="w-full text-xs text-left">
                     <thead className="bg-muted text-muted-foreground uppercase sticky top-0">
@@ -1055,19 +1079,16 @@ export default function GanttChart() {
                     </tbody>
                   </table>
                 </div>
-                )}
                 <div className="flex justify-end gap-2 pt-2">
                   <Button variant="outline" onClick={() => setCascadeProposal(null)} data-testid="button-cascade-cancel">
                     {isDrag ? "Chiudi" : "Annulla"}
                   </Button>
-                  {cascadeProposal.rows.length > 0 && (
-                    <Button
-                      onClick={() => { applyCascadeRows(cascadeProposal.rows); setCascadeProposal(null); }}
-                      data-testid="button-cascade-confirm"
-                    >
-                      {isDrag ? "Fissa queste date" : "Applica"}
-                    </Button>
-                  )}
+                  <Button
+                    onClick={() => { applyCascadeRows(cascadeProposal.rows); setCascadeProposal(null); }}
+                    data-testid="button-cascade-confirm"
+                  >
+                    {isDrag ? "Fissa queste date" : "Applica"}
+                  </Button>
                 </div>
               </div>
             );
