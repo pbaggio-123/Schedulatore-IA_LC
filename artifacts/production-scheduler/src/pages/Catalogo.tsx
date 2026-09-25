@@ -233,8 +233,34 @@ function FasiSection() {
 
   const save = () => {
     const entry: CatalogPhase = { id: sel?.id ?? `cp${Date.now()}`, name: form.name, skill: form.skill, hoursPerUnit: parseFloat(form.hoursPerUnit) || 0, unit: form.unit, color: form.color || undefined, overlapWith: form.overlapWith.length ? form.overlapWith : undefined };
-    if (dialog === "new") setCatalogPhases([...catalogPhases, entry]);
-    else setCatalogPhases(catalogPhases.map(p => p.id === entry.id ? entry : p));
+
+    // Sovrapposizione simmetrica: spuntarla qui deve farla risultare spuntata
+    // anche nel menu dell'ALTRA fase (e viceversa togliendola) — propaga la
+    // differenza rispetto a prima del salvataggio sulle fasi coinvolte, così il
+    // dato resta coerente da qualunque lato lo si apra.
+    const myCode = phaseCodeOf(form.name);
+    const oldCodes = new Set(sel?.overlapWith ?? []);
+    const newCodes = new Set(form.overlapWith);
+    const added = [...newCodes].filter(c => !oldCodes.has(c));
+    const removed = [...oldCodes].filter(c => !newCodes.has(c));
+
+    let updated = dialog === "new" ? [...catalogPhases, entry] : catalogPhases.map(p => p.id === entry.id ? entry : p);
+    if (added.length || removed.length) {
+      updated = updated.map(p => {
+        if (p.id === entry.id) return p;
+        const code = phaseCodeOf(p.name);
+        if (added.includes(code) && !p.overlapWith?.includes(myCode)) {
+          return { ...p, overlapWith: [...(p.overlapWith ?? []), myCode] };
+        }
+        if (removed.includes(code) && p.overlapWith?.includes(myCode)) {
+          const next = p.overlapWith.filter(c => c !== myCode);
+          return { ...p, overlapWith: next.length ? next : undefined };
+        }
+        return p;
+      });
+    }
+
+    setCatalogPhases(updated);
     setDialog(null);
   };
   const del = () => { if (sel) { setCatalogPhases(catalogPhases.filter(p => p.id !== sel.id)); setDialog(null); } };

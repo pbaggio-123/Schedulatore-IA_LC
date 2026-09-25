@@ -128,7 +128,18 @@ function diffRecord(base: any, local: any, schema: NestSchema): Omit<PatchEntry,
   const scalarKeys = new Set<string>([...Object.keys(base ?? {}), ...Object.keys(local ?? {})]);
   for (const f of childFields) scalarKeys.delete(f);
   for (const k of scalarKeys) {
-    if (JSON.stringify(base?.[k]) !== JSON.stringify(local?.[k])) fields[k] = local?.[k];
+    if (JSON.stringify(base?.[k]) !== JSON.stringify(local?.[k])) {
+      const v = local?.[k];
+      // undefined (campo opzionale azzerato, es. "colore: automatico" o una
+      // sovrapposizione rimossa) va normalizzato a null: JSON.stringify butta
+      // via le chiavi undefined quando il delta viene serializzato per la rete,
+      // quindi il server non riceverebbe MAI l'istruzione di azzerarlo e lo
+      // rilascerebbe al vecchio valore ad ogni pull successivo (bug osservato:
+      // una spunta tolta "torna" dopo qualche secondo). null sopravvive alla
+      // serializzazione e il resto del codice legge i campi opzionali con `?.`
+      // o `||`, quindi si comporta comunque come "assente".
+      fields[k] = v === undefined ? null : v;
+    }
   }
   const children: Record<string, MergeNode> = {};
   for (const cf of childFields) {

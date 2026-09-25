@@ -284,6 +284,20 @@ db `neondb`, tabelle `scheduler_state`, `presence`, `audit`.
 
 ## 7. Cose già rotte una volta (non ripeterle)
 
+- **Un campo azzerato "torna indietro" da solo dopo qualche secondo (25/09)**:
+  qualunque campo opzionale sincronizzato impostato a `undefined` (idioma
+  `valore || undefined`, es. colore fase riportato ad "automatico", una
+  sovrapposizione rimossa) veniva perso dal delta perché `JSON.stringify`
+  butta via le chiavi `undefined` quando il delta viene serializzato per la
+  rete: il server non riceveva l'istruzione di azzerarlo, e il pull
+  successivo (5s) ripubblicava il vecchio valore sul client — sembrava una
+  modifica "irreversibile". Risolto normalizzando `undefined` → `null` in
+  `diffRecord` (`SyncProvider.tsx`) prima di metterlo nel delta: `null`
+  sopravvive a `JSON.stringify` e il resto del codice legge i campi
+  opzionali con `?.`/`||`, quindi si comporta comunque come "assente". Se
+  ricompare su un campo NUOVO: controlla prima come viene azzerato quel
+  campo (deve finire per essere `undefined` o `null` nell'oggetto locale,
+  mai una chiave rimossa "a mano" in modi che il diff non intercetta).
 - **Perdita dati (24/06)**: il pull applicava il server sopra modifiche locali
   non ancora inviate → l'utente riapriva l'app e trovava il seed. Non
   recuperabili: non erano mai arrivate al server. Risolto con dirty-flag +
@@ -333,6 +347,29 @@ Da fare / da verificare:
 Aggiungi qui una riga per sessione: data, cosa hai cambiato, file toccati,
 deployment. Serve alla sessione dopo (tua o di chiunque altro).
 
+- **25/09/2026 (3)** — 2 bug segnalati testando la sovrapposizione fasi:
+  (1) **azzerare un campo opzionale sincronizzato "tornava indietro" dopo
+  pochi secondi** (qui: togliere la spunta di sovrapposizione). Causa reale:
+  `diffRecord` in `SyncProvider.tsx` scriveva `fields[k] = undefined` per un
+  campo azzerato, ma `JSON.stringify` butta via le chiavi `undefined` quando
+  il delta viene serializzato per la richiesta POST — il server non riceveva
+  MAI l'istruzione di azzerare il campo, restava al vecchio valore, e il
+  pull successivo lo ripubblicava sul client. Bug generale (qualsiasi campo
+  opzionale azzerato con l'idioma `valore || undefined`, non solo
+  `overlapWith`), mai notato prima perché nessuno aveva ancora testato un
+  "azzera e salva" su un campo sincronizzato. Fix: `diffRecord` normalizza
+  `undefined` → `null` prima di metterlo nel delta (sopravvive a
+  JSON.stringify; il server lo applica con un normale `Object.assign`,
+  nessuna modifica lato server necessaria). Vedi anche §7. (2) la
+  sovrapposizione impostata da un lato ora è **simmetrica**: salvando la
+  fase A con la spunta su B, `save()` in `Catalogo.tsx` propaga
+  automaticamente il codice di A nell'`overlapWith` di B (e viceversa
+  togliendo la spunta), così aprendo il menu di B si vede già spuntata A
+  senza doverlo impostare due volte. File: `sync/SyncProvider.tsx`,
+  `pages/Catalogo.tsx`. Testato in locale (diff/serializzazione verificata
+  con uno script Node isolato — l'ambiente di sviluppo non raggiunge il
+  vero backend Postgres; propagazione simmetrica testata via Playwright).
+  Deploy in produzione.
 - **25/09/2026 (2)** — due richieste di seguito alla sessione precedente:
   (1) il flag booleano "Può sovrapporsi" in Catalogo è diventato un **menu a
   spunte per-fase**: `CatalogPhase.overlapWith?: string[]` elenca i CODICI
