@@ -81,6 +81,8 @@ export interface Order {
   startDate: string;
   lots: Lot[];
   color: string;
+  /** N° lista di spedizione (es. "537 - 2026"), mostrata nel Pannello. */
+  shippingList?: string;
   /** Id dell'item Kissflow di origine (assente se la commessa è manuale). */
   kissflowId?: string;
   assignee?: string;

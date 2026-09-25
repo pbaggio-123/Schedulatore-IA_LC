@@ -34,6 +34,17 @@ const ROW_HEIGHT  = 44;
 const HEADER_HEIGHT = 56;
 const LINE_LABEL_W  = 56;
 
+// Colonne informative per riga (fase), fra l'etichetta di linea e il Gantt:
+// N° commessa, N° lista di spedizione, data inizio/fine della fase in quella riga.
+const COL_COMMESSA_W   = 66;
+const COL_SPEDIZIONE_W = 60;
+const COL_DATA_W       = 44;
+const INFO_PANEL_W = LINE_LABEL_W + COL_COMMESSA_W + COL_SPEDIZIONE_W + COL_DATA_W * 2;
+const COL_COMMESSA_X   = LINE_LABEL_W;
+const COL_SPEDIZIONE_X = COL_COMMESSA_X + COL_COMMESSA_W;
+const COL_INIZIO_X     = COL_SPEDIZIONE_X + COL_SPEDIZIONE_W;
+const COL_FINE_X       = COL_INIZIO_X + COL_DATA_W;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function addDays(d: Date, n: number): Date {
@@ -71,6 +82,9 @@ export default function GanttChart() {
   const didDragRef = useRef(false);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; part: GanttPart } | null>(null);
   const [hoverDay, setHoverDay] = useState<string | null>(null);
+
+  // Lookup commessa per id, per le colonne informative a sinistra del Gantt.
+  const orderById = useMemo(() => new Map(orders.map(o => [o.id, o])), [orders]);
 
   // ── Compute layout ──────────────────────────────────────────────────────────
   const { partsWithRow, lineInfo, totalRows, minDate, maxDate } = useMemo(() => {
@@ -138,7 +152,7 @@ export default function GanttChart() {
     const r = svgRef.current?.getBoundingClientRect();
     return { x: e.clientX - (r?.left ?? 0), y: e.clientY - (r?.top ?? 0) };
   };
-  const xToDate = (x: number) => addDays(minDate, Math.floor((x - LINE_LABEL_W) / DAY_WIDTH));
+  const xToDate = (x: number) => addDays(minDate, Math.floor((x - INFO_PANEL_W) / DAY_WIDTH));
 
   const getLineFromY = (y: number): "L1" | "L2" | "L3" => {
     for (const line of LINES) {
@@ -190,7 +204,7 @@ export default function GanttChart() {
       setDrag(prev => prev ? { ...prev, currentDeltaDays: dd, currentLine: newLine } : null);
       return;
     }
-    if (x > LINE_LABEL_W && y > HEADER_HEIGHT) setHoverDay(formatISODate(xToDate(x)));
+    if (x > INFO_PANEL_W && y > HEADER_HEIGHT) setHoverDay(formatISODate(xToDate(x)));
     else setHoverDay(null);
   };
 
@@ -229,7 +243,7 @@ export default function GanttChart() {
   const handleMouseUp = (e: React.MouseEvent) => {
     if (drag) { commitDrag(drag); setDrag(null); return; }
     const { x, y } = getSvgPt(e);
-    if (x > LINE_LABEL_W && y > HEADER_HEIGHT) toggleHolidayOnDate(formatISODate(xToDate(x)));
+    if (x > INFO_PANEL_W && y > HEADER_HEIGHT) toggleHolidayOnDate(formatISODate(xToDate(x)));
   };
 
   const handleMouseLeave = () => {
@@ -242,7 +256,7 @@ export default function GanttChart() {
 
   // ── Today ──────────────────────────────────────────────────────────────────
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const todayX = LINE_LABEL_W + daysBetween(minDate, today) * DAY_WIDTH;
+  const todayX = INFO_PANEL_W + daysBetween(minDate, today) * DAY_WIDTH;
 
   return (
     <div
@@ -259,7 +273,7 @@ export default function GanttChart() {
 
       <svg
         ref={svgRef}
-        width={Math.max(LINE_LABEL_W + chartWidth, 600)}
+        width={Math.max(INFO_PANEL_W + chartWidth, 600)}
         height={totalHeight}
         className="min-w-full"
         onMouseMove={handleMouseMove}
@@ -267,13 +281,13 @@ export default function GanttChart() {
         onMouseLeave={handleMouseLeave}
       >
         {/* ── Background base ── */}
-        <rect x={LINE_LABEL_W} y={HEADER_HEIGHT} width={chartWidth} height={totalHeight - HEADER_HEIGHT}
+        <rect x={INFO_PANEL_W} y={HEADER_HEIGHT} width={chartWidth} height={totalHeight - HEADER_HEIGHT}
           fill="hsl(var(--card))" />
 
         {/* ── Alternating day backgrounds (working days) ── */}
         {dayInfo.slice(0, totalDays).map(({ nonW }, i) => {
           if (nonW) return null;
-          const x = LINE_LABEL_W + i * DAY_WIDTH;
+          const x = INFO_PANEL_W + i * DAY_WIDTH;
           const fill = i % 2 === 0 ? "rgba(255,255,255,0.025)" : "transparent";
           return (
             <rect key={`bg-${i}`} x={x} y={HEADER_HEIGHT} width={DAY_WIDTH} height={totalHeight - HEADER_HEIGHT}
@@ -283,25 +297,25 @@ export default function GanttChart() {
 
         {/* ── Row separator lines ── */}
         {Array.from({ length: totalRows }).map((_, ri) => (
-          <line key={`rl-${ri}`} x1={LINE_LABEL_W} y1={HEADER_HEIGHT + ri * ROW_HEIGHT}
-            x2={LINE_LABEL_W + chartWidth} y2={HEADER_HEIGHT + ri * ROW_HEIGHT}
+          <line key={`rl-${ri}`} x1={INFO_PANEL_W} y1={HEADER_HEIGHT + ri * ROW_HEIGHT}
+            x2={INFO_PANEL_W + chartWidth} y2={HEADER_HEIGHT + ri * ROW_HEIGHT}
             stroke="rgba(130,130,150,0.18)" strokeWidth="1" />
         ))}
-        <line x1={LINE_LABEL_W} y1={totalHeight} x2={LINE_LABEL_W + chartWidth} y2={totalHeight}
+        <line x1={INFO_PANEL_W} y1={totalHeight} x2={INFO_PANEL_W + chartWidth} y2={totalHeight}
           stroke="rgba(130,130,150,0.18)" strokeWidth="1" />
 
         {/* ── Vertical day grid lines ── */}
         {Array.from({ length: totalDays + 1 }).map((_, i) => (
           <line key={`dl-${i}`}
-            x1={LINE_LABEL_W + i * DAY_WIDTH} y1={HEADER_HEIGHT}
-            x2={LINE_LABEL_W + i * DAY_WIDTH} y2={totalHeight}
+            x1={INFO_PANEL_W + i * DAY_WIDTH} y1={HEADER_HEIGHT}
+            x2={INFO_PANEL_W + i * DAY_WIDTH} y2={totalHeight}
             stroke="rgba(130,130,160,0.22)" strokeWidth="1" />
         ))}
 
         {/* ── Non-working day column fills ── */}
         {dayInfo.slice(0, totalDays).map(({ ds, hol, sat, sun, nonW }, i) => {
           const isHov = ds === hoverDay && !drag;
-          const x = LINE_LABEL_W + i * DAY_WIDTH;
+          const x = INFO_PANEL_W + i * DAY_WIDTH;
           let fill = "transparent";
           if (hol)                          fill = "rgba(239,68,68,0.20)";
           else if (sun)                     fill = "rgba(100,116,139,0.22)";
@@ -317,13 +331,13 @@ export default function GanttChart() {
         {/* Holiday vertical accent lines */}
         {dayInfo.slice(0, totalDays).map(({ ds, hol }, i) => {
           if (!hol) return null;
-          const x = LINE_LABEL_W + i * DAY_WIDTH;
+          const x = INFO_PANEL_W + i * DAY_WIDTH;
           return <line key={`hvl-${i}`} x1={x} y1={HEADER_HEIGHT} x2={x} y2={totalHeight}
             stroke="rgba(239,68,68,0.30)" strokeWidth="1.5" style={{ pointerEvents: "none" }} />;
         })}
 
         {/* ── Today line ── */}
-        {todayX >= LINE_LABEL_W && todayX <= LINE_LABEL_W + chartWidth && (
+        {todayX >= INFO_PANEL_W && todayX <= INFO_PANEL_W + chartWidth && (
           <line x1={todayX} y1={0} x2={todayX} y2={totalHeight}
             stroke="#ef4444" strokeWidth="2" strokeDasharray="4 3" opacity="0.65" />
         )}
@@ -334,7 +348,7 @@ export default function GanttChart() {
           const effectiveStart = isDragging ? addDays(drag!.origStartDate, drag!.currentDeltaDays) : p.startDate;
           const y    = HEADER_HEIGHT + ri * ROW_HEIGHT;
           const barY = y + 6;
-          const baseX = LINE_LABEL_W + daysBetween(minDate, effectiveStart) * DAY_WIDTH;
+          const baseX = INFO_PANEL_W + daysBetween(minDate, effectiveStart) * DAY_WIDTH;
           const segs = getSegments(
             isDragging ? effectiveStart : p.startDate,
             isDragging ? addDays(effectiveStart, p.calendarDays) : p.endDate,
@@ -402,13 +416,41 @@ export default function GanttChart() {
           );
         })}
 
+        {/* ── Colonne informative per riga: N° commessa, N° spedizione, date fase ── */}
+        {partsWithRow.map(({ part: p, rowIdx: ri }) => {
+          const order = orderById.get(p.orderId);
+          const y = HEADER_HEIGHT + ri * ROW_HEIGHT;
+          const midY = y + ROW_HEIGHT / 2 + 4;
+          const fmtDate = (d: Date) => d.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" });
+          return (
+            <g key={`info-${p.id}`} style={{ pointerEvents: "none" }}>
+              <text x={COL_COMMESSA_X + COL_COMMESSA_W / 2} y={midY} fontSize="10" fontFamily="monospace"
+                fontWeight="bold" fill="hsl(var(--primary))" textAnchor="middle">
+                {order?.orderNumber || "—"}
+              </text>
+              <text x={COL_SPEDIZIONE_X + COL_SPEDIZIONE_W / 2} y={midY} fontSize="9" fontFamily="monospace"
+                fill="hsl(var(--muted-foreground))" textAnchor="middle">
+                {order?.shippingList || "—"}
+              </text>
+              <text x={COL_INIZIO_X + COL_DATA_W / 2} y={midY} fontSize="9" fontFamily="monospace"
+                fill="hsl(var(--muted-foreground))" textAnchor="middle">
+                {fmtDate(p.startDate)}
+              </text>
+              <text x={COL_FINE_X + COL_DATA_W / 2} y={midY} fontSize="9" fontFamily="monospace"
+                fill="hsl(var(--muted-foreground))" textAnchor="middle">
+                {fmtDate(p.endDate)}
+              </text>
+            </g>
+          );
+        })}
+
         {/* ── Ghost bar while dragging ── */}
         {drag && (() => {
           const pr = partsWithRow.find(x => x.part.id === drag.partId);
           if (!pr) return null;
           const p = pr.part;
           const ghostStart = addDays(drag.origStartDate, drag.currentDeltaDays);
-          const ghostX  = LINE_LABEL_W + daysBetween(minDate, ghostStart) * DAY_WIDTH;
+          const ghostX  = INFO_PANEL_W + daysBetween(minDate, ghostStart) * DAY_WIDTH;
           const ghostRi = getGhostRow(drag.partId, drag.currentLine);
           const ghostY  = HEADER_HEIGHT + ghostRi * ROW_HEIGHT + 6;
           const segs = getSegments(ghostStart, addDays(ghostStart, p.calendarDays), holidays, saturdayWorking);
@@ -430,17 +472,36 @@ export default function GanttChart() {
           const ly = HEADER_HEIGHT + startRow * ROW_HEIGHT;
           const lh = rowCount * ROW_HEIGHT;
           return (
-            <rect x={LINE_LABEL_W} y={ly} width={chartWidth} height={lh}
+            <rect x={INFO_PANEL_W} y={ly} width={chartWidth} height={lh}
               fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.12)"
               strokeWidth="1.5" rx={2} style={{ pointerEvents: "none" }} />
           );
         })()}
 
         {/* ── HEADER (on top) ── */}
-        <rect x={0} y={0} width={LINE_LABEL_W + chartWidth} height={HEADER_HEIGHT}
+        <rect x={0} y={0} width={INFO_PANEL_W + chartWidth} height={HEADER_HEIGHT}
           fill="hsl(var(--card))" opacity="0.96" />
-        <line x1={0} y1={HEADER_HEIGHT} x2={LINE_LABEL_W + chartWidth} y2={HEADER_HEIGHT}
+        <line x1={0} y1={HEADER_HEIGHT} x2={INFO_PANEL_W + chartWidth} y2={HEADER_HEIGHT}
           stroke="hsl(var(--border))" strokeWidth="1.5" />
+
+        {/* ── Colonne informative: N° Commessa, N° Spedizione, Data Inizio/Fine
+             (una per riga/fase, fra l'etichetta di linea e il Gantt) ── */}
+        {[COL_SPEDIZIONE_X, COL_INIZIO_X, COL_FINE_X, INFO_PANEL_W].map(x => (
+          <line key={`infocol-${x}`} x1={x} y1={0} x2={x} y2={totalHeight}
+            stroke="hsl(var(--border))" strokeWidth="1" opacity={0.5} />
+        ))}
+        {[
+          { x: COL_COMMESSA_X,   w: COL_COMMESSA_W,   label: "COMMESSA" },
+          { x: COL_SPEDIZIONE_X, w: COL_SPEDIZIONE_W, label: "SPEDIZ." },
+          { x: COL_INIZIO_X,     w: COL_DATA_W,        label: "INIZIO" },
+          { x: COL_FINE_X,       w: COL_DATA_W,        label: "FINE" },
+        ].map(c => (
+          <text key={c.label} x={c.x + c.w / 2} y={HEADER_HEIGHT - 6} fontSize="8" fontFamily="monospace"
+            fontWeight="bold" fill="hsl(var(--muted-foreground))" textAnchor="middle"
+            style={{ textTransform: "uppercase" }}>
+            {c.label}
+          </text>
+        ))}
 
         {/* Month + day labels in header: ogni colonna mostra iniziale giorno
             settimana (L, M, M, G, V, S, D) sopra e data gg/mm sotto */}
@@ -452,7 +513,7 @@ export default function GanttChart() {
             const monthKey = `${d.getFullYear()}-${d.getMonth()}`;
             const isNewMonth = monthKey !== prevMonth;
             if (isNewMonth) prevMonth = monthKey;
-            const x = LINE_LABEL_W + i * DAY_WIDTH;
+            const x = INFO_PANEL_W + i * DAY_WIDTH;
             const textColor = isToday ? "#ef4444" : hol ? "#f87171" : "hsl(var(--muted-foreground))";
             return (
               <g key={`hdr-${i}`}>
@@ -482,7 +543,7 @@ export default function GanttChart() {
           if (!hol) return null;
           const h = holidays.find(h => h.recurring ? h.date.slice(5) === ds.slice(5) : h.date === ds);
           if (!h) return null;
-          const x = LINE_LABEL_W + i * DAY_WIDTH + DAY_WIDTH / 2;
+          const x = INFO_PANEL_W + i * DAY_WIDTH + DAY_WIDTH / 2;
           return (
             <text key={`hlbl-${i}`} x={x} y={HEADER_HEIGHT - 4} fontSize="8" fontFamily="monospace"
               fill="#f87171" textAnchor="middle" style={{ pointerEvents: "none" }}>
@@ -499,7 +560,7 @@ export default function GanttChart() {
           return (
             <g key={line}>
               {/* Strong separator between line groups */}
-              <line x1={0} y1={labelY} x2={LINE_LABEL_W + chartWidth} y2={labelY}
+              <line x1={0} y1={labelY} x2={INFO_PANEL_W + chartWidth} y2={labelY}
                 stroke="hsl(var(--border))" strokeWidth="1.5" />
               {/* Label background */}
               <rect x={0} y={labelY} width={LINE_LABEL_W} height={labelH} fill="hsl(var(--muted))" />
@@ -522,7 +583,7 @@ export default function GanttChart() {
         })}
 
         {/* Bottom border */}
-        <line x1={0} y1={totalHeight} x2={LINE_LABEL_W + chartWidth} y2={totalHeight}
+        <line x1={0} y1={totalHeight} x2={INFO_PANEL_W + chartWidth} y2={totalHeight}
           stroke="hsl(var(--border))" strokeWidth="1" />
       </svg>
 
@@ -550,7 +611,7 @@ export default function GanttChart() {
       {hoverDay && !drag && !tooltip && (() => {
         const hd = new Date(hoverDay + "T00:00:00");
         if (isWeekend(hd, true)) return null;
-        const x = LINE_LABEL_W + daysBetween(minDate, hd) * DAY_WIDTH;
+        const x = INFO_PANEL_W + daysBetween(minDate, hd) * DAY_WIDTH;
         return (
           <div className="absolute z-50 pointer-events-none bg-popover border border-border rounded px-2 py-1 text-[10px] font-mono"
             style={{ left: x + 4, top: HEADER_HEIGHT + 4 }}>
