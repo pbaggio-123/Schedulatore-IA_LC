@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx";
 import { Order, Holiday, Employee, CatalogPhase, formatISODate, computeEffectiveHours } from "@/types";
-import { computeScheduledParts, overlapAllowedCodesOf } from "./schedule";
+import { computeScheduledParts, overlapMapOf } from "./schedule";
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "In attesa",
@@ -16,7 +16,7 @@ export function exportPlanXlsx(
   employees: Employee[],
   catalogPhases: CatalogPhase[] = [],
 ): void {
-  const parts = computeScheduledParts(orders, holidays, saturdayWorking, undefined, overlapAllowedCodesOf(catalogPhases));
+  const parts = computeScheduledParts(orders, holidays, saturdayWorking, undefined, overlapMapOf(catalogPhases));
   const orderNumber = (id: string) => orders.find((o) => o.id === id)?.orderNumber ?? "";
   const empName = (id: string) => employees.find((e) => e.id === id)?.name ?? id;
 

@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from "react";
 import { useRoute, useLocation } from "wouter";
 import Layout from "@/components/Layout";
 import { useSchedulerData } from "@/hooks/useSchedulerData";
+import { useUndoRedoShortcuts } from "@/hooks/useUndoRedoShortcuts";
+import UndoRedoToolbar from "@/components/UndoRedoToolbar";
 import { computePartDurationDays, Part, Lot, SkillTag } from "@/types";
 import { addAuditEntry } from "@/hooks/useAuditLog";
 import { useAuth } from "@/hooks/useAuth";
@@ -11,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import SmartStaffing from "@/components/SmartStaffing";
-import { computeScheduledParts, findEmployeeOverlaps, overlapAllowedCodesOf } from "@/lib/schedule";
+import { computeScheduledParts, findEmployeeOverlaps, overlapMapOf } from "@/lib/schedule";
 import { computeEmployeeLoads } from "@/lib/capacity";
 import { Pencil, Trash2, Plus, ChevronLeft, AlertTriangle } from "lucide-react";
 
@@ -31,14 +33,15 @@ export default function CommessaDetail() {
   // Also support legacy route
   const [, paramsLegacy] = useRoute("/orders/:id");
   const [, setLocation] = useLocation();
-  const { orders, setOrders, employees, catalogPhases, catalogProducts, skills: allSkills, holidays, saturdayWorking } = useSchedulerData();
+  const { orders, setOrders, employees, catalogPhases, catalogProducts, skills: allSkills, holidays, saturdayWorking, undoOrders, redoOrders, canUndoOrders, canRedoOrders } = useSchedulerData();
   const { can } = useAuth();
+  useUndoRedoShortcuts(undoOrders, redoOrders);
   const canPlan    = can("crudOrders");        // tier 3+: struttura commessa, catalogo, nome/ore/skill
 
   // Carico globale per dipendente — usato da SmartStaffing per bilanciare (C2)
   const loadByEmployeeId = useMemo(() => {
     const loads = computeEmployeeLoads(
-      computeScheduledParts(orders, holidays, saturdayWorking, undefined, overlapAllowedCodesOf(catalogPhases)),
+      computeScheduledParts(orders, holidays, saturdayWorking, undefined, overlapMapOf(catalogPhases)),
       employees,
     );
     const rec: Record<string, number> = {};
@@ -99,7 +102,7 @@ export default function CommessaDetail() {
       })),
     }));
     return findEmployeeOverlaps(
-      computeScheduledParts(simulated, holidays, saturdayWorking, undefined, overlapAllowedCodesOf(catalogPhases)),
+      computeScheduledParts(simulated, holidays, saturdayWorking, undefined, overlapMapOf(catalogPhases)),
       employees,
     ).filter(ov => ov.a.id === editingPart.id || ov.b.id === editingPart.id);
   }, [editingPart, orders, holidays, saturdayWorking, employees, catalogPhases]);
@@ -283,11 +286,14 @@ export default function CommessaDetail() {
       <div className="p-6 flex flex-col gap-6">
         {/* Header */}
         <div className="flex flex-col gap-2">
-          <button onClick={() => setLocation("/commesse")}
-            className="flex items-center gap-1 text-xs text-muted-foreground uppercase hover:text-primary transition-colors w-fit"
-            data-testid="button-back-orders">
-            <ChevronLeft size={13} /> Tutte le Commesse
-          </button>
+          <div className="flex items-center justify-between">
+            <button onClick={() => setLocation("/commesse")}
+              className="flex items-center gap-1 text-xs text-muted-foreground uppercase hover:text-primary transition-colors w-fit"
+              data-testid="button-back-orders">
+              <ChevronLeft size={13} /> Tutte le Commesse
+            </button>
+            <UndoRedoToolbar canUndo={canUndoOrders} canRedo={canRedoOrders} onUndo={undoOrders} onRedo={redoOrders} testIdPrefix="commessa-detail" />
+          </div>
           <div className="flex items-center gap-3">
             <div className="w-4 h-4 rounded-sm shrink-0 border border-border" style={{ backgroundColor: order.color }} />
             <h2 className="text-2xl font-bold uppercase tracking-tight text-primary">{order.name}</h2>

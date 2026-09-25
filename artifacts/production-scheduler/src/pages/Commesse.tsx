@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import Layout from "@/components/Layout";
 import { useSchedulerData } from "@/hooks/useSchedulerData";
+import { useUndoRedoShortcuts } from "@/hooks/useUndoRedoShortcuts";
+import UndoRedoToolbar from "@/components/UndoRedoToolbar";
 import { Order, Lot, Part } from "@/types";
 import { addAuditEntry } from "@/hooks/useAuditLog";
 import { useAuth } from "@/hooks/useAuth";
@@ -32,8 +34,9 @@ const EMPTY_FORM = { name: "", orderNumber: "", startDate: new Date().toISOStrin
 const GANTT_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"];
 
 export default function Commesse() {
-  const { orders, setOrders } = useSchedulerData();
+  const { orders, setOrders, undoOrders, redoOrders, canUndoOrders, canRedoOrders } = useSchedulerData();
   const { can } = useAuth();
+  useUndoRedoShortcuts(undoOrders, redoOrders);
   const [dialog, setDialog] = useState<"new" | "edit" | "delete" | null>(null);
   const [selected, setSelected] = useState<Order | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -119,11 +122,14 @@ export default function Commesse() {
       <div className="p-6 flex flex-col gap-5">
         <div className="flex justify-between items-center">
           <h2 className="text-2xl font-bold uppercase tracking-tight text-primary">Commesse</h2>
-          {can("crudOrders") && (
-            <Button onClick={openNew} data-testid="button-add-commessa">
-              <Plus size={15} className="mr-2" /> Nuova Commessa
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            <UndoRedoToolbar canUndo={canUndoOrders} canRedo={canRedoOrders} onUndo={undoOrders} onRedo={redoOrders} testIdPrefix="commesse" />
+            {can("crudOrders") && (
+              <Button onClick={openNew} data-testid="button-add-commessa">
+                <Plus size={15} className="mr-2" /> Nuova Commessa
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* ─── New/Edit Dialog ─── */}

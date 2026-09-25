@@ -4,7 +4,7 @@ import { useSchedulerData } from "@/hooks/useSchedulerData";
 import { useAuth } from "@/hooks/useAuth";
 import { addAuditEntry } from "@/hooks/useAuditLog";
 import { toast } from "@/hooks/use-toast";
-import { computeScheduledParts, findEmployeeOverlaps, overlapAllowedCodesOf, EmployeeOverlap } from "@/lib/schedule";
+import { computeScheduledParts, findEmployeeOverlaps, overlapMapOf, EmployeeOverlap } from "@/lib/schedule";
 import { formatISODate } from "@/types";
 
 /**
@@ -20,7 +20,7 @@ export default function OverlapAlert() {
 
   const overlaps = useMemo(
     () => findEmployeeOverlaps(
-      computeScheduledParts(orders, holidays, saturdayWorking, undefined, overlapAllowedCodesOf(catalogPhases)),
+      computeScheduledParts(orders, holidays, saturdayWorking, undefined, overlapMapOf(catalogPhases)),
       employees,
     ),
     [orders, holidays, saturdayWorking, employees, catalogPhases],

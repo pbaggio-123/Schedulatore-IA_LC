@@ -1,5 +1,7 @@
 import Layout from "@/components/Layout";
 import { useSchedulerData } from "@/hooks/useSchedulerData";
+import { useUndoRedoShortcuts } from "@/hooks/useUndoRedoShortcuts";
+import UndoRedoToolbar from "@/components/UndoRedoToolbar";
 import GanttChart from "@/components/GanttChart";
 import OverlapAlert from "@/components/OverlapAlert";
 import { Button } from "@/components/ui/button";
@@ -7,7 +9,8 @@ import { Download, Printer } from "lucide-react";
 import { exportPlanXlsx } from "@/lib/exportPlan";
 
 export default function Dashboard() {
-  const { orders, holidays, saturdayWorking, employees, catalogPhases } = useSchedulerData();
+  const { orders, holidays, saturdayWorking, employees, catalogPhases, undoOrders, redoOrders, canUndoOrders, canRedoOrders } = useSchedulerData();
+  useUndoRedoShortcuts(undoOrders, redoOrders);
 
   const totalOrders = orders.length;
   const parts = orders.flatMap(o => o.lots.flatMap(l => l.parts));
@@ -21,6 +24,7 @@ export default function Dashboard() {
         <div className="flex items-center justify-between gap-2 no-print">
           <h2 className="text-2xl font-bold uppercase tracking-tight text-primary">Pannello di Controllo</h2>
           <div className="flex items-center gap-2">
+            <UndoRedoToolbar canUndo={canUndoOrders} canRedo={canRedoOrders} onUndo={undoOrders} onRedo={redoOrders} testIdPrefix="pannello" />
             <Button
               variant="outline"
               size="sm"

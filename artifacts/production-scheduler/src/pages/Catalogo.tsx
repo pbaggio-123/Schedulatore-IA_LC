@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Layout from "@/components/Layout";
 import { useSchedulerData } from "@/hooks/useSchedulerData";
+import { useUndoRedoShortcuts } from "@/hooks/useUndoRedoShortcuts";
+import UndoRedoToolbar from "@/components/UndoRedoToolbar";
 import { CatalogPhase, CatalogProduct } from "@/types";
-import { phaseColor } from "@/lib/schedule";
+import { phaseColor, phaseCodeOf } from "@/lib/schedule";
 import { useAuth } from "@/hooks/useAuth";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -10,7 +12,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Pencil, Trash2, Plus, BookOpen, Tag } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Pencil, Trash2, Plus, BookOpen, Tag, ChevronDown } from "lucide-react";
 
 const PALETTE = [
   "bg-orange-500/20 text-orange-400",
@@ -199,18 +202,37 @@ function CompetenzaSection() {
 // ── Sezione Fasi ─────────────────────────────────────────────────────────────
 
 function FasiSection() {
-  const { catalogPhases, setCatalogPhases, skills } = useSchedulerData();
+  const { catalogPhases, setCatalogPhases, skills, undoCatalogPhases, redoCatalogPhases, canUndoCatalogPhases, canRedoCatalogPhases } = useSchedulerData();
   const canManage = useAuth().can("manageCatalog");
+  useUndoRedoShortcuts(undoCatalogPhases, redoCatalogPhases);
   const [dialog, setDialog] = useState<"new" | "edit" | "delete" | null>(null);
   const [sel, setSel] = useState<CatalogPhase | null>(null);
-  const [form, setForm] = useState({ name: "", skill: "", hoursPerUnit: "0.5", unit: "pz", color: "", canOverlap: false });
+  const [form, setForm] = useState({ name: "", skill: "", hoursPerUnit: "0.5", unit: "pz", color: "", overlapWith: [] as string[] });
 
-  const openNew = () => { setForm({ name: "", skill: skills[0] ?? "", hoursPerUnit: "0.5", unit: "pz", color: "", canOverlap: false }); setSel(null); setDialog("new"); };
-  const openEdit = (p: CatalogPhase) => { setForm({ name: p.name, skill: p.skill, hoursPerUnit: String(p.hoursPerUnit), unit: p.unit, color: p.color ?? "", canOverlap: p.canOverlap ?? false }); setSel(p); setDialog("edit"); };
+  const openNew = () => { setForm({ name: "", skill: skills[0] ?? "", hoursPerUnit: "0.5", unit: "pz", color: "", overlapWith: [] }); setSel(null); setDialog("new"); };
+  const openEdit = (p: CatalogPhase) => { setForm({ name: p.name, skill: p.skill, hoursPerUnit: String(p.hoursPerUnit), unit: p.unit, color: p.color ?? "", overlapWith: p.overlapWith ? [...p.overlapWith] : [] }); setSel(p); setDialog("edit"); };
   const openDel = (p: CatalogPhase) => { setSel(p); setDialog("delete"); };
 
+  // Altre fasi selezionabili nel menu di sovrapposizione (esclude quella in
+  // modifica; deduplicate per codice, così due voci con lo stesso codice fase
+  // non compaiono due volte nell'elenco).
+  const overlapOptions = useMemo(() => {
+    const byCode = new Map<string, string>();
+    catalogPhases.forEach(p => {
+      if (sel && p.id === sel.id) return;
+      const code = phaseCodeOf(p.name);
+      if (!byCode.has(code)) byCode.set(code, p.name);
+    });
+    return Array.from(byCode.entries()).map(([code, name]) => ({ code, name }));
+  }, [catalogPhases, sel]);
+
+  const toggleOverlap = (code: string) => setForm(f => ({
+    ...f,
+    overlapWith: f.overlapWith.includes(code) ? f.overlapWith.filter(c => c !== code) : [...f.overlapWith, code],
+  }));
+
   const save = () => {
-    const entry: CatalogPhase = { id: sel?.id ?? `cp${Date.now()}`, name: form.name, skill: form.skill, hoursPerUnit: parseFloat(form.hoursPerUnit) || 0, unit: form.unit, color: form.color || undefined, canOverlap: form.canOverlap || undefined };
+    const entry: CatalogPhase = { id: sel?.id ?? `cp${Date.now()}`, name: form.name, skill: form.skill, hoursPerUnit: parseFloat(form.hoursPerUnit) || 0, unit: form.unit, color: form.color || undefined, overlapWith: form.overlapWith.length ? form.overlapWith : undefined };
     if (dialog === "new") setCatalogPhases([...catalogPhases, entry]);
     else setCatalogPhases(catalogPhases.map(p => p.id === entry.id ? entry : p));
     setDialog(null);
@@ -221,7 +243,10 @@ function FasiSection() {
     <div className="flex flex-col gap-3">
       <div className="flex justify-between items-center">
         <h3 className="text-sm font-bold uppercase tracking-widest text-muted-foreground">Fasi di Lavorazione Standard</h3>
-        {canManage && <Button size="sm" onClick={openNew} data-testid="button-add-phase"><Plus size={13} className="mr-1" /> Aggiungi Fase</Button>}
+        <div className="flex items-center gap-2">
+          <UndoRedoToolbar canUndo={canUndoCatalogPhases} canRedo={canRedoCatalogPhases} onUndo={undoCatalogPhases} onRedo={redoCatalogPhases} testIdPrefix="catalogo" />
+          {canManage && <Button size="sm" onClick={openNew} data-testid="button-add-phase"><Plus size={13} className="mr-1" /> Aggiungi Fase</Button>}
+        </div>
       </div>
 
       <Dialog open={dialog === "new" || dialog === "edit"} onOpenChange={o => !o && setDialog(null)}>
@@ -259,12 +284,35 @@ function FasiSection() {
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Checkbox id="phase-can-overlap" checked={form.canOverlap} onCheckedChange={v => setForm({ ...form, canOverlap: !!v })} />
-              <Label htmlFor="phase-can-overlap" className="cursor-pointer text-sm">Può sovrapporsi nel tempo ad altre fasi (stessa linea)</Label>
+            <div className="grid gap-2">
+              <Label>Può sovrapporsi nel tempo con (stessa linea)</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button type="button" variant="outline" className="w-full justify-between font-normal">
+                    {form.overlapWith.length === 0
+                      ? "Nessuna (accodamento automatico)"
+                      : `${form.overlapWith.length} fase/i selezionata/e`}
+                    <ChevronDown size={14} className="opacity-60" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-72 p-2 max-h-64 overflow-y-auto" align="start">
+                  {overlapOptions.length === 0 ? (
+                    <p className="text-xs text-muted-foreground italic px-1 py-1">Nessun&apos;altra fase nel catalogo.</p>
+                  ) : overlapOptions.map(({ code, name }) => (
+                    <div key={code} className="flex items-center gap-2 px-1 py-1.5 rounded hover:bg-muted/40">
+                      <Checkbox
+                        id={`overlap-${code}`}
+                        checked={form.overlapWith.includes(code)}
+                        onCheckedChange={() => toggleOverlap(code)}
+                      />
+                      <Label htmlFor={`overlap-${code}`} className="cursor-pointer text-xs flex-1">{name}</Label>
+                    </div>
+                  ))}
+                </PopoverContent>
+              </Popover>
             </div>
             <p className="text-[11px] text-muted-foreground -mt-2">
-              Se attivo, questa fase non entra nell'accodamento automatico di linea nel Gantt: resta alla sua data naturale anche se si sovrappone ad altre fasi.
+              Le fasi selezionate non aspettano la fine di questa fase (e viceversa) per iniziare sulla stessa linea nel Gantt: restano alla loro data naturale anche sovrapponendosi nel tempo. Con le altre resta l&apos;accodamento automatico.
             </p>
             <div className="flex gap-2 justify-end pt-2">
               <Button variant="outline" onClick={() => setDialog(null)}>Annulla</Button>
@@ -312,8 +360,11 @@ function FasiSection() {
                 <td className="px-4 py-3 font-mono">{p.hoursPerUnit}h</td>
                 <td className="px-4 py-3 font-mono text-muted-foreground">{p.unit}</td>
                 <td className="px-4 py-3">
-                  {p.canOverlap
-                    ? <span className="text-xs px-2 py-0.5 rounded uppercase bg-amber-500/20 text-amber-400">Consentita</span>
+                  {p.overlapWith?.length
+                    ? <span className="text-xs px-2 py-0.5 rounded uppercase bg-amber-500/20 text-amber-400"
+                        title={`Può sovrapporsi con: ${p.overlapWith.join(", ")}`}>
+                        {p.overlapWith.length} fase/i
+                      </span>
                     : <span className="text-muted-foreground">—</span>}
                 </td>
                 <td className="px-4 py-3 text-right flex gap-1 justify-end">

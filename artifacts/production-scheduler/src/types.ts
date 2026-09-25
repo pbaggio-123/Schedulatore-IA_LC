@@ -18,9 +18,11 @@ export interface CatalogPhase {
   /** Colore scelto per questa fase nel calendario/Gantt (es. "#ef4444"). Se vuoto
    *  il colore viene generato automaticamente dal codice fase. */
   color?: string;
-  /** Se true, questa fase può sovrapporsi nel tempo ad altre fasi sulla stessa
-   *  linea: non entra nell'accodamento automatico di linea nel Gantt. */
-  canOverlap?: boolean;
+  /** Codici fase (vedi phaseCodeOf, es. "34K") con cui QUESTA fase può
+   *  sovrapporsi nel tempo sulla stessa linea nel Gantt: non aspetta la fine
+   *  dell'altra fase per iniziare (e viceversa — basta impostarlo da un lato).
+   *  Impostato dal Catalogo con un menu di spunte per-fase. */
+  overlapWith?: string[];
 }
 
 export interface CatalogProduct {

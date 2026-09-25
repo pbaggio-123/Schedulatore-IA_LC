@@ -7,7 +7,7 @@ import {
 } from "@/types";
 import {
   computeScheduledParts, findEmployeeOverlaps, overlappingPartIds, phaseCodeOf,
-  shippingListOf, overlapAllowedCodesOf, ScheduledPart, DAY_HOURS,
+  shippingListOf, overlapMapOf, ScheduledPart, DAY_HOURS,
 } from "@/lib/schedule";
 import { useLocation } from "wouter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -105,8 +105,8 @@ export default function GanttChart() {
     // colore automatico generato dal codice.
     const phaseColors: Record<string, string> = {};
     catalogPhases.forEach(ph => { if (ph.color) phaseColors[phaseCodeOf(ph.name)] = ph.color; });
-    const overlapAllowedCodes = overlapAllowedCodesOf(catalogPhases);
-    const finalParts: GanttPart[] = computeScheduledParts(orders, holidays, saturdayWorking, phaseColors, overlapAllowedCodes);
+    const overlapMap = overlapMapOf(catalogPhases);
+    const finalParts: GanttPart[] = computeScheduledParts(orders, holidays, saturdayWorking, phaseColors, overlapMap);
 
     // Assign rows: each part gets its own row, grouped by line
     const lineGroups: Record<string, GanttPart[]> = { L1: [], L2: [], L3: [] };

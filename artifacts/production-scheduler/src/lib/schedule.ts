@@ -88,9 +88,25 @@ export function shippingListOf(lotName: string): string | null {
   return parts[1];
 }
 
-// ── Fasi esenti dall'accodamento di linea (Catalogo → "Può sovrapporsi") ────
-export function overlapAllowedCodesOf(catalogPhases: CatalogPhase[]): Set<string> {
-  return new Set(catalogPhases.filter(p => p.canOverlap).map(p => phaseCodeOf(p.name)));
+// ── Coppie di fasi che possono sovrapporsi nel tempo (Catalogo → menu spunte) ──
+// Mappa codice fase -> insieme di codici con cui può sovrapporsi. Basta che UNO
+// dei due lati dichiari l'altro (vedi canOverlapPair): non serve impostarlo su
+// entrambe le fasi.
+export function overlapMapOf(catalogPhases: CatalogPhase[]): Map<string, Set<string>> {
+  const map = new Map<string, Set<string>>();
+  for (const p of catalogPhases) {
+    if (!p.overlapWith?.length) continue;
+    const code = phaseCodeOf(p.name);
+    const set = map.get(code) ?? new Set<string>();
+    p.overlapWith.forEach(c => set.add(c));
+    map.set(code, set);
+  }
+  return map;
+}
+
+function canOverlapPair(codeA: string, codeB: string, map?: Map<string, Set<string>>): boolean {
+  if (!map) return false;
+  return !!map.get(codeA)?.has(codeB) || !!map.get(codeB)?.has(codeA);
 }
 
 export function computeScheduledParts(
@@ -100,10 +116,10 @@ export function computeScheduledParts(
   // Colore scelto manualmente per CODICE fase (es. {"32A":"#ff0000"}). Se presente
   // vince sul colore automatico. Lo passa il Gantt leggendo i colori del catalogo.
   phaseColors?: Record<string, string>,
-  // Codici fase (Catalogo → "Può sovrapporsi") esenti dall'accodamento di linea:
-  // restano alla loro data naturale anche se un'altra fase della stessa linea ci
-  // si sovrappone, e non spostano in avanti le fasi successive.
-  overlapAllowedCodes?: Set<string>,
+  // Coppie di codici fase (Catalogo → menu "Può sovrapporsi con") esenti fra loro
+  // dall'accodamento di linea: se la fase corrente è compatibile col codice che
+  // occupa al momento la linea, resta alla sua data naturale e non lo altera.
+  overlapMap?: Map<string, Set<string>>,
 ): ScheduledPart[] {
   const colorOf = (name: string) =>
     phaseColors?.[phaseCodeOf(name)] || phaseColor(name);
@@ -146,13 +162,15 @@ export function computeScheduledParts(
   // più un giorno intero). Il clock tiene {giorno, ore già usate nel giorno}.
   // Eccezione: le fasi FULL_DAY_CODES (34K/34J/35B) partono sempre a inizio
   // giornata e occupano giornate intere, senza condividere lo slot.
-  const lineClock: Record<string, { date: Date; used: number } | null> = { L1: null, L2: null, L3: null };
+  const lineClock: Record<string, { date: Date; used: number; code: string } | null> = { L1: null, L2: null, L3: null };
 
   return rawParts.map(p => {
-    // Fase esente: resta alla sua data naturale, ignora e non altera il clock
-    // di linea (può sovrapporsi ad altre fasi sulla stessa linea).
-    const exempt = overlapAllowedCodes?.has(phaseCodeOf(p.name)) ?? false;
-    const clock = exempt ? null : lineClock[p.line];
+    // Fase compatibile col codice che occupa al momento la linea: resta alla sua
+    // data naturale, ignora e non altera il clock (si sovrappone a quella fase).
+    const pCode = phaseCodeOf(p.name);
+    const rawClock = lineClock[p.line];
+    const exempt = !!rawClock && canOverlapPair(pCode, rawClock.code, overlapMap);
+    const clock = exempt ? null : rawClock;
     // Floor: la linea non può iniziare prima dell'inizio naturale della fase.
     let date: Date, used: number;
     if (!clock || clock.date < p.startDate) {
@@ -172,7 +190,7 @@ export function computeScheduledParts(
       const days = Math.max(1, Math.ceil(hours / DAY_HOURS));
       const endDate = addWorkingDays(date, days, holidays, saturdayWorking);
       // la prossima fase riparte da un giorno pulito
-      if (!exempt) lineClock[p.line] = { date: endDate, used: 0 };
+      if (!exempt) lineClock[p.line] = { date: endDate, used: 0, code: pCode };
       return { ...p, startDate: date, endDate, calendarDays: daysBetween(date, endDate) };
     }
 
@@ -187,7 +205,7 @@ export function computeScheduledParts(
       const newUsed = total % DAY_HOURS;
       let newDate = date;
       for (let k = 0; k < advance; k++) newDate = nextWorkingDay(newDate, holidays, saturdayWorking);
-      lineClock[p.line] = { date: newDate, used: newUsed };
+      lineClock[p.line] = { date: newDate, used: newUsed, code: pCode };
     }
 
     return { ...p, startDate: date, endDate, calendarDays: daysBetween(date, endDate) };

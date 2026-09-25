@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import Layout from "@/components/Layout";
 import { useSchedulerData } from "@/hooks/useSchedulerData";
 import { useShifts } from "@/hooks/useShifts";
-import { computeScheduledParts, overlapAllowedCodesOf } from "@/lib/schedule";
+import { computeScheduledParts, overlapMapOf } from "@/lib/schedule";
 import { computeEmployeeLoads } from "@/lib/capacity";
 import { Users } from "lucide-react";
 
@@ -18,7 +18,7 @@ export default function Capacita() {
   const { shifts } = useShifts();
 
   const loads = useMemo(() => {
-    const parts = computeScheduledParts(orders, holidays, saturdayWorking, undefined, overlapAllowedCodesOf(catalogPhases));
+    const parts = computeScheduledParts(orders, holidays, saturdayWorking, undefined, overlapMapOf(catalogPhases));
     return computeEmployeeLoads(parts, employees, { shifts, holidays, saturdayWorking });
   }, [orders, holidays, saturdayWorking, employees, shifts, catalogPhases]);
 

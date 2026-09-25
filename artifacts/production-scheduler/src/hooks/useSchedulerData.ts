@@ -1,4 +1,5 @@
 import { useLocalStorage } from "./useLocalStorage";
+import { useUndoRedo } from "./useUndoRedo";
 import { Order, Employee, Holiday, CatalogPhase, CatalogProduct, AfanEntry } from "../types";
 import { initialAfanEntries } from "../data/afanSeed";
 
@@ -61,19 +62,29 @@ export function useSchedulerData() {
   // suffisso _ialc: forza il caricamento dei nuovi dati demo IALC anche su
   // browser che avevano già usato l'app con i dati precedenti
   const [employees,         setEmployees]         = useLocalStorage<Employee[]>      ("scheduler_employees_ialc",       initialEmployees);
-  const [orders,            setOrders]            = useLocalStorage<Order[]>          ("scheduler_orders_ialc",          initialOrders);
+  const [orders,            setOrdersRaw]         = useLocalStorage<Order[]>          ("scheduler_orders_ialc",          initialOrders);
   const [holidays,          setHolidays]          = useLocalStorage<Holiday[]>        ("scheduler_holidays",             initialHolidays);
-  const [catalogPhases,     setCatalogPhases]     = useLocalStorage<CatalogPhase[]>   ("scheduler_catalog_phases_ialc",  initialCatalogPhases);
+  const [catalogPhases,     setCatalogPhasesRaw]  = useLocalStorage<CatalogPhase[]>   ("scheduler_catalog_phases_ialc",  initialCatalogPhases);
   const [catalogProducts,   setCatalogProducts]   = useLocalStorage<CatalogProduct[]> ("scheduler_catalog_products_ialc", initialCatalogProducts);
   const [saturdayWorking,   setSaturdayWorking]   = useLocalStorage<boolean>          ("scheduler_saturday_working",     false);
   const [skills,            setSkills]            = useLocalStorage<string[]>         ("scheduler_skills_ialc",          initialSkills);
   const [afanEntries,       setAfanEntries]       = useLocalStorage<AfanEntry[]>      ("scheduler_afan_ialc",            initialAfanEntries);
 
+  // Annulla/ripeti: storico condiviso fra le pagine che leggono/scrivono la
+  // stessa chiave (Commesse + Pannello + dettaglio commessa per "orders",
+  // Catalogo per "catalogPhases"). Vedi hooks/useUndoRedo.ts.
+  const ordersHistory = useUndoRedo("scheduler_orders_ialc", orders, setOrdersRaw);
+  const catalogPhasesHistory = useUndoRedo("scheduler_catalog_phases_ialc", catalogPhases, setCatalogPhasesRaw);
+
   return {
     employees,         setEmployees,
-    orders,            setOrders,
+    orders,            setOrders: ordersHistory.setValue,
+    undoOrders: ordersHistory.undo, redoOrders: ordersHistory.redo,
+    canUndoOrders: ordersHistory.canUndo, canRedoOrders: ordersHistory.canRedo,
     holidays,          setHolidays,
-    catalogPhases,     setCatalogPhases,
+    catalogPhases,     setCatalogPhases: catalogPhasesHistory.setValue,
+    undoCatalogPhases: catalogPhasesHistory.undo, redoCatalogPhases: catalogPhasesHistory.redo,
+    canUndoCatalogPhases: catalogPhasesHistory.canUndo, canRedoCatalogPhases: catalogPhasesHistory.canRedo,
     catalogProducts,   setCatalogProducts,
     saturdayWorking,   setSaturdayWorking,
     skills,            setSkills,

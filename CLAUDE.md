@@ -53,6 +53,7 @@ File chiave del frontend:
 | `src/hooks/useSchedulerData.ts` | Dati + seed iniziale (dipendenti, catalogo fasi). |
 | `src/hooks/useAuth.tsx` | Login demo, tier 1-4, capability, token di sync. |
 | `src/hooks/useLocalStorage.ts` | Storage reattivo (eventi custom) — tutte le pagine si aggiornano senza reload. |
+| `src/hooks/useUndoRedo.ts` + `undoRedoStore.ts` | Annulla/Ripeti (Commesse, Pannello, Catalogo): storico in memoria per chiave di storage, condiviso fra pagine/istanze diverse. |
 | `src/components/GanttChart.tsx` | Gantt, drag delle fasi. |
 | `src/pages/` | Pannello, Commesse, CommessaDetail, Catalogo, Dipendenti, Turni, Capacità, Importa, Registro, Utenti, Login. |
 | `src/lib/capacity.ts` | Carico/saturazione per persona (usa le ore reali dei turni). |
@@ -332,6 +333,45 @@ Da fare / da verificare:
 Aggiungi qui una riga per sessione: data, cosa hai cambiato, file toccati,
 deployment. Serve alla sessione dopo (tua o di chiunque altro).
 
+- **25/09/2026 (2)** — due richieste di seguito alla sessione precedente:
+  (1) il flag booleano "Può sovrapporsi" in Catalogo è diventato un **menu a
+  spunte per-fase**: `CatalogPhase.overlapWith?: string[]` elenca i CODICI
+  delle altre fasi con cui può sovrapporsi (basta impostarlo da un lato,
+  `canOverlapPair` in `schedule.ts` controlla in OR su entrambi); il motore
+  di scheduling ora tiene traccia anche del codice che occupa la linea
+  (`lineClock[...].code`) per decidere l'esenzione COPPIA per COPPIA invece
+  che globale. Rinominata `overlapAllowedCodesOf` → `overlapMapOf` in tutti
+  i chiamanti (Capacita, CommessaDetail, exportPlan, OverlapAlert,
+  GanttChart). (2) **Annulla/Ripeti** in Commesse, dettaglio commessa,
+  Pannello e Catalogo: nuovo `useUndoRedo` (hooks/useUndoRedo.ts) che
+  aggancia uno storico in memoria (hooks/undoRedoStore.ts, un
+  `useSyncExternalStore` per chiave di storage) a `setOrders`/
+  `setCatalogPhases` dentro `useSchedulerData`. Pulsanti ◀▶ in ogni pagina
+  (`components/UndoRedoToolbar.tsx`) + scorciatoie Ctrl+Z/Ctrl+Shift+Z
+  (`hooks/useUndoRedoShortcuts.ts`, disattivate mentre si scrive in un
+  campo). **Nota tecnica**: Pannello monta `GanttChart` come componente
+  figlio ma ciascuno chiama `useSchedulerData()` per conto proprio (istanze
+  React separate, stesso pattern del resto dell'app) — annullare da un
+  pulsante non basta a far leggere il nuovo valore all'ALTRA istanza. Perciò
+  `undo()`/`redo()` NON si fidano dello stato React locale: rileggono
+  sempre `orders`/`catalogPhases` veri da localStorage e li riscrivono
+  emettendo lo stesso evento (`LS_CLOUD_SET_EVENT`) usato dal pull cloud,
+  così ogni pagina montata si allinea all'istante; il risultato viene anche
+  marcato per il push (`LS_WRITE_EVENT`) come una modifica normale. Storico
+  in memoria per scheda del browser (si azzera al reload), non collegato
+  alla sync cloud multi-dispositivo — annulla/ripeti resta un'azione
+  locale. Limite 50 passi per chiave. File: `types.ts` (`overlapWith`
+  sostituisce `canOverlap`), `lib/schedule.ts`, `hooks/useSchedulerData.ts`,
+  `hooks/useUndoRedo.ts` (nuovo), `hooks/undoRedoStore.ts` (nuovo),
+  `hooks/useUndoRedoShortcuts.ts` (nuovo),
+  `components/UndoRedoToolbar.tsx` (nuovo), `components/GanttChart.tsx`,
+  `components/OverlapAlert.tsx`, `lib/exportPlan.ts`, `pages/Capacita.tsx`,
+  `pages/CommessaDetail.tsx`, `pages/Commesse.tsx`, `pages/Dashboard.tsx`,
+  `pages/Catalogo.tsx`. Testato in locale con Playwright: menu spunte
+  sovrapposizione, sovrapposizione oraria effettiva fra due fasi collegate,
+  creazione/annulla/ripeti su Commesse, correzione ore + annulla/ripeti
+  fatti da pagine diverse (Pannello/Gantt) col refresh immediato del Gantt.
+  Deploy in produzione.
 - **25/09/2026** — 4 richieste sul Pannello/Catalogo: (1) lista di spedizione
   del lotto riconosciuta **in automatico** dal nome (`"CODICE - NNN -
   Descrizione"`, split su `" - "`, 1-4 cifre) invece di un campo manuale —
