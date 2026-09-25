@@ -284,6 +284,27 @@ db `neondb`, tabelle `scheduler_state`, `presence`, `audit`.
 
 ## 7. Cose già rotte una volta (non ripeterle)
 
+- **Ogni data scritta finiva un giorno prima di quella scelta, SOLO per gli
+  utenti con fuso orario avanti su UTC — quindi in Italia, sempre (25/09)**:
+  `formatISODate` (in `types.ts`, usata OVUNQUE: drag nel Gantt, edit inline
+  data, turni, capacità, export) faceva `d.toISOString().split("T")[0]`. Ogni
+  data dell'app è costruita a mezzanotte LOCALE (`new Date(iso +
+  "T00:00:00")`); `toISOString()` la converte a UTC, e per un fuso avanti
+  rispetto a UTC (Italia: UTC+1 inverno, UTC+2 estate) mezzanotte locale
+  ricade nella SERA del giorno PRIMA in UTC → la data salvata retrocedeva di
+  un giorno, ad ogni scrittura, silenziosamente. Frustrante da scovare: il
+  sandbox di sviluppo qui è in **UTC**, dove il bug non si manifesta affatto
+  (nessuno scarto), quindi nessun test locale l'ha mai preso finché l'utente
+  non ha mandato uno screenshot/video da un browser reale in Italia — il
+  sintomo sembrava "il drag and drop non è coerente, rilascio su un giorno
+  ed è un altro" (segnalato due volte, con fix sbagliati/parziali sul drag
+  stesso prima di trovare la causa vera). **Per testare fix di date in questo
+  progetto, lancia sempre Playwright con `timezoneId: 'Europe/Rome'`**
+  (`newPage({ timezoneId: 'Europe/Rome' })`): riproduce esattamente il fuso
+  del cliente, il sandbox di default no. Risolto costruendo la stringa da
+  `getFullYear()/getMonth()/getDate()` (componenti locali, mai convertiti):
+  `lib/capacity.ts` e `pages/Turni.tsx` (turni/capacità) beneficiano dello
+  stesso fix, avevano lo stesso problema latente mai notato.
 - **Un campo azzerato "torna indietro" da solo dopo qualche secondo (25/09)**:
   qualunque campo opzionale sincronizzato impostato a `undefined` (idioma
   `valore || undefined`, es. colore fase riportato ad "automatico", una
@@ -347,6 +368,28 @@ Da fare / da verificare:
 Aggiungi qui una riga per sessione: data, cosa hai cambiato, file toccati,
 deployment. Serve alla sessione dopo (tua o di chiunque altro).
 
+- **25/09/2026 (7)** — trovata la VERA causa del drag "non coerente" segnalato
+  due volte (§25/09 (5) e (6) erano fix reali ma parziali, non la causa di
+  fondo): `formatISODate` in `types.ts` convertiva a UTC (`toISOString()`) una
+  data costruita a mezzanotte LOCALE — per l'Italia (UTC+1/+2, avanti su UTC)
+  questo fa retrocedere la data salvata di un giorno, SEMPRE, ad ogni
+  scrittura (drag, edit inline, turni, capacità). Il sandbox di sviluppo qui
+  è in UTC, dove il bug non si manifesta: ecco perché tutti i test Playwright
+  precedenti (inclusi quelli di questa stessa sessione) erano sempre passati.
+  Trovato analizzando un video mandato dall'utente (estratto fotogrammi con
+  ffmpeg, non disponibile di default — installato con `apt-get install -y
+  --no-install-recommends ffmpeg`, altrimenti scarica troppe dipendenze non
+  necessarie e fallisce su questo sandbox) e confermato riproducendo lo
+  stesso identico comportamento con un test Node isolato sotto
+  `TZ=Europe/Rome`. Risolto costruendo la stringa ISO dai componenti LOCALI
+  della data (`getFullYear/getMonth/getDate`), mai convertiti — vedi §7 per
+  il dettaglio e la raccomandazione di testare sempre con `timezoneId:
+  'Europe/Rome'` in Playwright per questo progetto. File: `types.ts` (unico
+  file toccato: la funzione è usata ovunque nel frontend, non serve
+  duplicarla altrove). Testato in locale con Playwright sotto
+  `timezoneId: 'Europe/Rome'`: drag a cascata, edit inline data, tutti con
+  date esatte al giorno corretto; suite di regressione completa (sotto UTC)
+  ancora verde. Deploy in produzione.
 - **25/09/2026 (6)** — 2 bug reali trovati testando il fix precedente (§25/09
   (5)), entrambi con screenshot dell'utente. (1) **Il drag "non si spostava
   proprio" quando il rilascio del mouse cadeva sopra una zona di buco**: i

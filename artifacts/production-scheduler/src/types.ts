@@ -142,8 +142,20 @@ export const DEFAULT_SHIFT: ShiftType = "giornata";
 
 // ─── Date utilities ───────────────────────────────────────────────────────────
 
+// Formatta la data LOCALE (non UTC) come YYYY-MM-DD. Ogni data dell'app è
+// costruita come mezzanotte locale (`new Date(iso + "T00:00:00")`): usare
+// `toISOString()` la convertirebbe a UTC e, per chi ha un fuso orario avanti
+// rispetto a UTC (es. l'Italia, UTC+1/+2), la farebbe retrocedere di un
+// giorno ad ogni scrittura — un trascinamento sul giorno giusto veniva
+// salvato al giorno prima, sempre, silenziosamente (bug osservato 25/09,
+// vedi §7). I componenti locali (`getFullYear`/`getMonth`/`getDate`) non
+// convertono mai fuso orario, quindi restano sempre coerenti col giorno di
+// calendario che l'utente vede e sceglie.
 export function formatISODate(d: Date): string {
-  return d.toISOString().split("T")[0];
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 export function isHoliday(date: Date, holidays: Holiday[]): boolean {
