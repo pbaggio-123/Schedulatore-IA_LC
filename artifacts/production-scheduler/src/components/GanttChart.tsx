@@ -5,8 +5,15 @@ import { addAuditEntry } from "@/hooks/useAuditLog";
 import {
   formatISODate, isHoliday, isWeekend, isNonWorkingDay, Holiday,
 } from "@/types";
-import { computeScheduledParts, findEmployeeOverlaps, overlappingPartIds, phaseCodeOf, ScheduledPart } from "@/lib/schedule";
+import {
+  computeScheduledParts, findEmployeeOverlaps, overlappingPartIds, phaseCodeOf,
+  shippingListOf, overlapAllowedCodesOf, ScheduledPart, DAY_HOURS,
+} from "@/lib/schedule";
 import { useLocation } from "wouter";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -82,6 +89,12 @@ export default function GanttChart() {
   const didDragRef = useRef(false);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; part: GanttPart } | null>(null);
   const [hoverDay, setHoverDay] = useState<string | null>(null);
+  // Editing inline della data inizio (click sulla colonna "Inizio")
+  const [dateEdit, setDateEdit] = useState<{ partId: string; x: number; y: number; value: string } | null>(null);
+  // Dialog di correzione ore/giorni (click sulla barra della fase)
+  const [correctionPart, setCorrectionPart] = useState<GanttPart | null>(null);
+  const [correctionHours, setCorrectionHours] = useState("0");
+  const [correctionDays, setCorrectionDays] = useState("0");
 
   // Lookup commessa per id, per le colonne informative a sinistra del Gantt.
   const orderById = useMemo(() => new Map(orders.map(o => [o.id, o])), [orders]);
@@ -92,7 +105,8 @@ export default function GanttChart() {
     // colore automatico generato dal codice.
     const phaseColors: Record<string, string> = {};
     catalogPhases.forEach(ph => { if (ph.color) phaseColors[phaseCodeOf(ph.name)] = ph.color; });
-    const finalParts: GanttPart[] = computeScheduledParts(orders, holidays, saturdayWorking, phaseColors);
+    const overlapAllowedCodes = overlapAllowedCodesOf(catalogPhases);
+    const finalParts: GanttPart[] = computeScheduledParts(orders, holidays, saturdayWorking, phaseColors, overlapAllowedCodes);
 
     // Assign rows: each part gets its own row, grouped by line
     const lineGroups: Record<string, GanttPart[]> = { L1: [], L2: [], L3: [] };
@@ -240,6 +254,54 @@ export default function GanttChart() {
     }
   }, [setOrders, partsWithRow]);
 
+  // ── Modifica manuale data inizio (colonna "Inizio") ─────────────────────────
+  const commitDateEdit = () => {
+    if (!dateEdit || !dateEdit.value) { setDateEdit(null); return; }
+    const pr = partsWithRow.find(x => x.part.id === dateEdit.partId);
+    const p = pr?.part;
+    if (p) {
+      const prevISO = formatISODate(p.startDate);
+      if (dateEdit.value !== prevISO) {
+        setOrders(prev => prev.map(o => o.id !== p.orderId ? o : {
+          ...o, lots: o.lots.map(l => l.id !== p.lotId ? l : {
+            ...l, parts: l.parts.map(pt => pt.id !== p.id ? pt : { ...pt, manualStartDate: dateEdit.value }),
+          }),
+        }));
+        addAuditEntry({
+          actionType: "cambio_data", partId: p.id, partName: p.name,
+          field: "Inizio", previousValue: prevISO, newValue: dateEdit.value,
+          notes: "Modificata dalla colonna Inizio nel Pannello",
+        });
+      }
+    }
+    setDateEdit(null);
+  };
+
+  // ── Correzione ore/giorni (click sulla fase nel Gantt) ──────────────────────
+  const applyCorrection = () => {
+    if (!correctionPart) return;
+    const hoursDelta = parseFloat(correctionHours) || 0;
+    const daysDelta = parseFloat(correctionDays) || 0;
+    const delta = hoursDelta + daysDelta * DAY_HOURS;
+    if (delta === 0) { setCorrectionPart(null); return; }
+    const prevHours = correctionPart.estimatedHours;
+    const newHours = Math.max(1, prevHours + delta);
+    setOrders(prev => prev.map(o => o.id !== correctionPart.orderId ? o : {
+      ...o, lots: o.lots.map(l => l.id !== correctionPart.lotId ? l : {
+        ...l, parts: l.parts.map(pt => pt.id !== correctionPart.id ? pt : { ...pt, estimatedHours: newHours }),
+      }),
+    }));
+    const notesParts: string[] = [];
+    if (hoursDelta !== 0) notesParts.push(`${hoursDelta > 0 ? "+" : ""}${hoursDelta}h`);
+    if (daysDelta !== 0) notesParts.push(`${daysDelta > 0 ? "+" : ""}${daysDelta}gg lavorativi`);
+    addAuditEntry({
+      actionType: "modifica", partId: correctionPart.id, partName: correctionPart.name,
+      field: "Ore stimate", previousValue: `${prevHours}h`, newValue: `${newHours}h`,
+      notes: `Correzione dal Pannello: ${notesParts.join(", ")}`,
+    });
+    setCorrectionPart(null);
+  };
+
   const handleMouseUp = (e: React.MouseEvent) => {
     if (drag) { commitDrag(drag); setDrag(null); return; }
     const { x, y } = getSvgPt(e);
@@ -366,7 +428,10 @@ export default function GanttChart() {
               onClick={e => {
                 e.stopPropagation();
                 if (didDragRef.current) { didDragRef.current = false; return; }
-                if (!drag) setLocation(`/commesse/${p.orderId}`);
+                if (!drag) {
+                  if (can("movePhases")) { setCorrectionHours("0"); setCorrectionDays("0"); setCorrectionPart(p); }
+                  else setLocation(`/commesse/${p.orderId}`);
+                }
               }}
               opacity={isDragging ? 0.3 : 1}
             >
@@ -422,22 +487,31 @@ export default function GanttChart() {
           const y = HEADER_HEIGHT + ri * ROW_HEIGHT;
           const midY = y + ROW_HEIGHT / 2 + 4;
           const fmtDate = (d: Date) => d.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" });
+          const canEditDate = can("movePhases");
           return (
-            <g key={`info-${p.id}`} style={{ pointerEvents: "none" }}>
+            <g key={`info-${p.id}`}>
               <text x={COL_COMMESSA_X + COL_COMMESSA_W / 2} y={midY} fontSize="10" fontFamily="monospace"
-                fontWeight="bold" fill="hsl(var(--primary))" textAnchor="middle">
+                fontWeight="bold" fill="hsl(var(--primary))" textAnchor="middle" style={{ pointerEvents: "none" }}>
                 {order?.orderNumber || "—"}
               </text>
               <text x={COL_SPEDIZIONE_X + COL_SPEDIZIONE_W / 2} y={midY} fontSize="9" fontFamily="monospace"
-                fill="hsl(var(--muted-foreground))" textAnchor="middle">
-                {order?.shippingList || "—"}
+                fill="hsl(var(--muted-foreground))" textAnchor="middle" style={{ pointerEvents: "none" }}>
+                {shippingListOf(p.lotName) ?? "—"}
               </text>
               <text x={COL_INIZIO_X + COL_DATA_W / 2} y={midY} fontSize="9" fontFamily="monospace"
-                fill="hsl(var(--muted-foreground))" textAnchor="middle">
+                fill={canEditDate ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))"} textAnchor="middle"
+                textDecoration={canEditDate ? "underline" : undefined}
+                style={{ cursor: canEditDate ? "pointer" : "default" }}
+                onClick={e => {
+                  e.stopPropagation();
+                  if (!canEditDate) return;
+                  setDateEdit({ partId: p.id, x: COL_INIZIO_X, y, value: formatISODate(p.startDate) });
+                }}
+              >
                 {fmtDate(p.startDate)}
               </text>
               <text x={COL_FINE_X + COL_DATA_W / 2} y={midY} fontSize="9" fontFamily="monospace"
-                fill="hsl(var(--muted-foreground))" textAnchor="middle">
+                fill="hsl(var(--muted-foreground))" textAnchor="middle" style={{ pointerEvents: "none" }}>
                 {fmtDate(p.endDate)}
               </text>
             </g>
@@ -603,7 +677,9 @@ export default function GanttChart() {
               {tooltip.part.adjustment! > 0 ? "+" : ""}{tooltip.part.adjustment}%
             </span></div>
           )}
-          <div className="text-[10px] text-primary/60 mt-1">Trascina · click per aprire</div>
+          <div className="text-[10px] text-primary/60 mt-1">
+            {can("movePhases") ? "Trascina · click per correggere ore/giorni" : "Trascina · click per aprire"}
+          </div>
         </div>
       )}
 
@@ -621,6 +697,76 @@ export default function GanttChart() {
           </div>
         );
       })()}
+
+      {/* ── Editing inline data inizio (click sulla colonna Inizio) ── */}
+      {dateEdit && (
+        <div className="absolute z-50 bg-popover border border-primary rounded shadow-lg p-1.5 flex flex-col gap-1"
+          style={{ left: dateEdit.x, top: dateEdit.y }}>
+          <input
+            type="date"
+            autoFocus
+            value={dateEdit.value}
+            onChange={e => setDateEdit({ ...dateEdit, value: e.target.value })}
+            onKeyDown={e => {
+              if (e.key === "Enter") commitDateEdit();
+              if (e.key === "Escape") setDateEdit(null);
+            }}
+            className="text-xs font-mono bg-background border border-border rounded px-1.5 py-1"
+            style={{ width: COL_COMMESSA_W + COL_SPEDIZIONE_W }}
+            data-testid="input-inline-start-date"
+          />
+          <div className="flex gap-1 justify-end">
+            <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2" onClick={() => setDateEdit(null)}>Annulla</Button>
+            <Button size="sm" className="h-6 text-[10px] px-2" onClick={commitDateEdit} data-testid="button-save-inline-date">Ok</Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Dialog correzione ore/giorni (click sulla fase) ── */}
+      <Dialog open={!!correctionPart} onOpenChange={o => !o && setCorrectionPart(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Correggi Fase</DialogTitle></DialogHeader>
+          {correctionPart && (() => {
+            const hoursDelta = parseFloat(correctionHours) || 0;
+            const daysDelta = parseFloat(correctionDays) || 0;
+            const resultHours = Math.max(1, correctionPart.estimatedHours + hoursDelta + daysDelta * DAY_HOURS);
+            return (
+              <div className="flex flex-col gap-4 py-2">
+                <div className="text-sm">
+                  <span className="font-bold">{correctionPart.name}</span>
+                  <span className="text-muted-foreground"> — {correctionPart.orderName} / {correctionPart.lotName}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">Correzione ore (± ore)</Label>
+                    <Input type="number" step="0.5" value={correctionHours}
+                      onChange={e => setCorrectionHours(e.target.value)} data-testid="input-correction-hours" />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">Correzione giorni lavorativi (± gg)</Label>
+                    <Input type="number" step="1" value={correctionDays}
+                      onChange={e => setCorrectionDays(e.target.value)} data-testid="input-correction-days" />
+                  </div>
+                </div>
+                <p className="text-xs font-mono text-muted-foreground">
+                  Ore attuali: {correctionPart.estimatedHours}h → Risultanti:{" "}
+                  <span className="text-primary font-bold">{resultHours}h</span>
+                </p>
+                <div className="flex items-center justify-between pt-2">
+                  <button type="button" className="text-xs text-primary underline"
+                    onClick={() => { setLocation(`/commesse/${correctionPart.orderId}`); setCorrectionPart(null); }}>
+                    Apri dettaglio commessa →
+                  </button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => setCorrectionPart(null)}>Annulla</Button>
+                    <Button onClick={applyCorrection} data-testid="button-apply-correction">Applica</Button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

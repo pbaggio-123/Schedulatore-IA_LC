@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import SmartStaffing from "@/components/SmartStaffing";
-import { computeScheduledParts, findEmployeeOverlaps } from "@/lib/schedule";
+import { computeScheduledParts, findEmployeeOverlaps, overlapAllowedCodesOf } from "@/lib/schedule";
 import { computeEmployeeLoads } from "@/lib/capacity";
 import { Pencil, Trash2, Plus, ChevronLeft, AlertTriangle } from "lucide-react";
 
@@ -37,11 +37,14 @@ export default function CommessaDetail() {
 
   // Carico globale per dipendente — usato da SmartStaffing per bilanciare (C2)
   const loadByEmployeeId = useMemo(() => {
-    const loads = computeEmployeeLoads(computeScheduledParts(orders, holidays, saturdayWorking), employees);
+    const loads = computeEmployeeLoads(
+      computeScheduledParts(orders, holidays, saturdayWorking, undefined, overlapAllowedCodesOf(catalogPhases)),
+      employees,
+    );
     const rec: Record<string, number> = {};
     for (const l of loads) rec[l.employee.id] = l.assignedHours;
     return rec;
-  }, [orders, holidays, saturdayWorking, employees]);
+  }, [orders, holidays, saturdayWorking, employees, catalogPhases]);
   const canOperate = can("updatePhaseStatus"); // tier 2+: stato, linea, personale
 
   const orderId = params?.id ?? paramsLegacy?.id;
@@ -96,10 +99,10 @@ export default function CommessaDetail() {
       })),
     }));
     return findEmployeeOverlaps(
-      computeScheduledParts(simulated, holidays, saturdayWorking),
+      computeScheduledParts(simulated, holidays, saturdayWorking, undefined, overlapAllowedCodesOf(catalogPhases)),
       employees,
     ).filter(ov => ov.a.id === editingPart.id || ov.b.id === editingPart.id);
-  }, [editingPart, orders, holidays, saturdayWorking, employees]);
+  }, [editingPart, orders, holidays, saturdayWorking, employees, catalogPhases]);
 
   if (!order) {
     return (

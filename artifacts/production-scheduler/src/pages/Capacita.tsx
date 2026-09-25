@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import Layout from "@/components/Layout";
 import { useSchedulerData } from "@/hooks/useSchedulerData";
 import { useShifts } from "@/hooks/useShifts";
-import { computeScheduledParts } from "@/lib/schedule";
+import { computeScheduledParts, overlapAllowedCodesOf } from "@/lib/schedule";
 import { computeEmployeeLoads } from "@/lib/capacity";
 import { Users } from "lucide-react";
 
@@ -14,13 +14,13 @@ function satColor(sat: number): string {
 }
 
 export default function Capacita() {
-  const { orders, holidays, saturdayWorking, employees } = useSchedulerData();
+  const { orders, holidays, saturdayWorking, employees, catalogPhases } = useSchedulerData();
   const { shifts } = useShifts();
 
   const loads = useMemo(() => {
-    const parts = computeScheduledParts(orders, holidays, saturdayWorking);
+    const parts = computeScheduledParts(orders, holidays, saturdayWorking, undefined, overlapAllowedCodesOf(catalogPhases));
     return computeEmployeeLoads(parts, employees, { shifts, holidays, saturdayWorking });
-  }, [orders, holidays, saturdayWorking, employees, shifts]);
+  }, [orders, holidays, saturdayWorking, employees, shifts, catalogPhases]);
 
   const maxHours = Math.max(1, ...loads.map((l) => l.assignedHours));
   const totalAssigned = loads.reduce((s, l) => s + l.assignedHours, 0);

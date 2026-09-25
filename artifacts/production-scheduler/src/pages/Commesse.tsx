@@ -28,7 +28,7 @@ function deriveStatus(order: Order): string {
   return "pending";
 }
 
-const EMPTY_FORM = { name: "", orderNumber: "", startDate: new Date().toISOString().split("T")[0], color: "#3b82f6", shippingList: "" };
+const EMPTY_FORM = { name: "", orderNumber: "", startDate: new Date().toISOString().split("T")[0], color: "#3b82f6" };
 const GANTT_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"];
 
 export default function Commesse() {
@@ -48,7 +48,7 @@ export default function Commesse() {
   };
 
   const openNew = () => { setForm(EMPTY_FORM); setSelected(null); setDialog("new"); };
-  const openEdit = (o: Order) => { setForm({ name: o.name, orderNumber: o.orderNumber, startDate: o.startDate, color: o.color, shippingList: o.shippingList ?? "" }); setSelected(o); setDialog("edit"); };
+  const openEdit = (o: Order) => { setForm({ name: o.name, orderNumber: o.orderNumber, startDate: o.startDate, color: o.color }); setSelected(o); setDialog("edit"); };
   const openDelete = (o: Order) => { setSelected(o); setDialog("delete"); };
 
   const handleSaveNew = () => {
@@ -143,15 +143,9 @@ export default function Commesse() {
                   <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} data-testid="input-order-name" />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label>Data Inizio</Label>
-                  <Input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} data-testid="input-order-start" />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Lista di Spedizione</Label>
-                  <Input value={form.shippingList} onChange={e => setForm({ ...form, shippingList: e.target.value })} placeholder="es. 537 - 2026" data-testid="input-order-shipping-list" />
-                </div>
+              <div className="grid gap-2">
+                <Label>Data Inizio</Label>
+                <Input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} data-testid="input-order-start" />
               </div>
               <div className="grid gap-2">
                 <Label>Colore Gantt</Label>
@@ -198,7 +192,6 @@ export default function Commesse() {
                 <th className="px-3 py-3">N. Commessa</th>
                 <th className="px-3 py-3">Nome</th>
                 <th className="px-3 py-3">Data Inizio</th>
-                <th className="px-3 py-3">Lista Sped.</th>
                 <th className="px-3 py-3">Lotti</th>
                 <th className="px-3 py-3">Fasi</th>
                 <th className="px-3 py-3">Stato</th>
@@ -207,7 +200,7 @@ export default function Commesse() {
             </thead>
             <tbody>
               {orders.length === 0 && (
-                <tr><td colSpan={9} className="px-4 py-8 text-center text-muted-foreground italic">Nessuna commessa. Creane una con il tasto in alto a destra.</td></tr>
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-muted-foreground italic">Nessuna commessa. Creane una con il tasto in alto a destra.</td></tr>
               )}
               {orders.map(order => {
                 const partsCount = order.lots.reduce((acc, l) => acc + l.parts.length, 0);
@@ -230,7 +223,6 @@ export default function Commesse() {
                         {order.name}
                       </td>
                       <td className="px-3 py-3 font-mono text-sm">{order.startDate}</td>
-                      <td className="px-3 py-3 font-mono text-sm text-muted-foreground">{order.shippingList || "—"}</td>
                       <td className="px-3 py-3 font-mono">{order.lots.length}</td>
                       <td className="px-3 py-3 font-mono">{partsCount}</td>
                       <td className="px-3 py-3">
@@ -261,7 +253,7 @@ export default function Commesse() {
                           <td colSpan={2} className="py-2 text-xs font-bold uppercase tracking-wider text-primary/80">
                             {lot.name}
                           </td>
-                          <td colSpan={6} className="py-2 text-xs text-muted-foreground font-mono">{lot.parts.length} fasi</td>
+                          <td colSpan={5} className="py-2 text-xs text-muted-foreground font-mono">{lot.parts.length} fasi</td>
                         </tr>
                         {lot.parts.map((part: Part) => (
                           <tr key={`part-${part.id}`} className="border-b border-border/30 bg-muted/10">
@@ -276,7 +268,6 @@ export default function Commesse() {
                                 {STATUS_LABELS[part.status]}
                               </span>
                             </td>
-                            <td />
                             <td />
                           </tr>
                         ))}

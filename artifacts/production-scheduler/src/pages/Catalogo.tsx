@@ -203,14 +203,14 @@ function FasiSection() {
   const canManage = useAuth().can("manageCatalog");
   const [dialog, setDialog] = useState<"new" | "edit" | "delete" | null>(null);
   const [sel, setSel] = useState<CatalogPhase | null>(null);
-  const [form, setForm] = useState({ name: "", skill: "", hoursPerUnit: "0.5", unit: "pz", color: "" });
+  const [form, setForm] = useState({ name: "", skill: "", hoursPerUnit: "0.5", unit: "pz", color: "", canOverlap: false });
 
-  const openNew = () => { setForm({ name: "", skill: skills[0] ?? "", hoursPerUnit: "0.5", unit: "pz", color: "" }); setSel(null); setDialog("new"); };
-  const openEdit = (p: CatalogPhase) => { setForm({ name: p.name, skill: p.skill, hoursPerUnit: String(p.hoursPerUnit), unit: p.unit, color: p.color ?? "" }); setSel(p); setDialog("edit"); };
+  const openNew = () => { setForm({ name: "", skill: skills[0] ?? "", hoursPerUnit: "0.5", unit: "pz", color: "", canOverlap: false }); setSel(null); setDialog("new"); };
+  const openEdit = (p: CatalogPhase) => { setForm({ name: p.name, skill: p.skill, hoursPerUnit: String(p.hoursPerUnit), unit: p.unit, color: p.color ?? "", canOverlap: p.canOverlap ?? false }); setSel(p); setDialog("edit"); };
   const openDel = (p: CatalogPhase) => { setSel(p); setDialog("delete"); };
 
   const save = () => {
-    const entry: CatalogPhase = { id: sel?.id ?? `cp${Date.now()}`, name: form.name, skill: form.skill, hoursPerUnit: parseFloat(form.hoursPerUnit) || 0, unit: form.unit, color: form.color || undefined };
+    const entry: CatalogPhase = { id: sel?.id ?? `cp${Date.now()}`, name: form.name, skill: form.skill, hoursPerUnit: parseFloat(form.hoursPerUnit) || 0, unit: form.unit, color: form.color || undefined, canOverlap: form.canOverlap || undefined };
     if (dialog === "new") setCatalogPhases([...catalogPhases, entry]);
     else setCatalogPhases(catalogPhases.map(p => p.id === entry.id ? entry : p));
     setDialog(null);
@@ -259,6 +259,13 @@ function FasiSection() {
                 )}
               </div>
             </div>
+            <div className="flex items-center gap-2">
+              <Checkbox id="phase-can-overlap" checked={form.canOverlap} onCheckedChange={v => setForm({ ...form, canOverlap: !!v })} />
+              <Label htmlFor="phase-can-overlap" className="cursor-pointer text-sm">Può sovrapporsi nel tempo ad altre fasi (stessa linea)</Label>
+            </div>
+            <p className="text-[11px] text-muted-foreground -mt-2">
+              Se attivo, questa fase non entra nell'accodamento automatico di linea nel Gantt: resta alla sua data naturale anche se si sovrappone ad altre fasi.
+            </p>
             <div className="flex gap-2 justify-end pt-2">
               <Button variant="outline" onClick={() => setDialog(null)}>Annulla</Button>
               <Button onClick={save}>Salva</Button>
@@ -286,11 +293,12 @@ function FasiSection() {
               <th className="px-4 py-3">Skill</th>
               <th className="px-4 py-3">Ore / Unità</th>
               <th className="px-4 py-3">U.M.</th>
+              <th className="px-4 py-3">Sovrapposizione</th>
               <th className="px-4 py-3 text-right">Azioni</th>
             </tr>
           </thead>
           <tbody>
-            {catalogPhases.length === 0 && <tr><td colSpan={5} className="px-4 py-6 text-center text-muted-foreground italic">Nessuna fase configurata</td></tr>}
+            {catalogPhases.length === 0 && <tr><td colSpan={6} className="px-4 py-6 text-center text-muted-foreground italic">Nessuna fase configurata</td></tr>}
             {catalogPhases.map(p => (
               <tr key={p.id} className="border-b border-border hover:bg-muted/20 transition-colors">
                 <td className="px-4 py-3 font-bold">
@@ -303,6 +311,11 @@ function FasiSection() {
                 <td className="px-4 py-3"><span className={`text-xs px-2 py-0.5 rounded uppercase ${skillColor(p.skill, skills)}`}>{p.skill}</span></td>
                 <td className="px-4 py-3 font-mono">{p.hoursPerUnit}h</td>
                 <td className="px-4 py-3 font-mono text-muted-foreground">{p.unit}</td>
+                <td className="px-4 py-3">
+                  {p.canOverlap
+                    ? <span className="text-xs px-2 py-0.5 rounded uppercase bg-amber-500/20 text-amber-400">Consentita</span>
+                    : <span className="text-muted-foreground">—</span>}
+                </td>
                 <td className="px-4 py-3 text-right flex gap-1 justify-end">
                   {canManage && (
                     <>

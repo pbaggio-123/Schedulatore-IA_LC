@@ -7,7 +7,7 @@ import { Download, Printer } from "lucide-react";
 import { exportPlanXlsx } from "@/lib/exportPlan";
 
 export default function Dashboard() {
-  const { orders, holidays, saturdayWorking, employees } = useSchedulerData();
+  const { orders, holidays, saturdayWorking, employees, catalogPhases } = useSchedulerData();
 
   const totalOrders = orders.length;
   const parts = orders.flatMap(o => o.lots.flatMap(l => l.parts));
@@ -24,7 +24,7 @@ export default function Dashboard() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => exportPlanXlsx(orders, holidays, saturdayWorking, employees)}
+              onClick={() => exportPlanXlsx(orders, holidays, saturdayWorking, employees, catalogPhases)}
               data-testid="button-export-xlsx"
             >
               <Download size={15} className="mr-2" /> Esporta Excel

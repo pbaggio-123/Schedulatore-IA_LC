@@ -332,6 +332,35 @@ Da fare / da verificare:
 Aggiungi qui una riga per sessione: data, cosa hai cambiato, file toccati,
 deployment. Serve alla sessione dopo (tua o di chiunque altro).
 
+- **25/09/2026** — 4 richieste sul Pannello/Catalogo: (1) lista di spedizione
+  del lotto riconosciuta **in automatico** dal nome (`"CODICE - NNN -
+  Descrizione"`, split su `" - "`, 1-4 cifre) invece di un campo manuale —
+  nuova `shippingListOf()` in `schedule.ts`, usata nella colonna "Spediz."
+  del Gantt; rimosso il campo `Order.shippingList` introdotto per errore la
+  sessione precedente (il valore varia per **lotto**, non per commessa);
+  (2) verificato che il colore barra fosse già per codice fase (nessuna
+  modifica necessaria, `phaseColor`/`phaseCodeOf` già corretti);
+  (3) colonna "Inizio" del Pannello ora editabile inline (click → date
+  picker → `manualStartDate`, loggato in Registro) e click sulla fase nel
+  Gantt apre dialog "Correggi Fase" per correzione ±ore/±giorni lavorativi
+  su `estimatedHours` (anch'esso loggato); (4) nuovo flag `CatalogPhase.
+  canOverlap` ("Può sovrapporsi nel tempo") impostabile in Catalogo → Fasi:
+  le fasi marcate escono dall'accodamento automatico di linea in
+  `computeScheduledParts` (nuovo param `overlapAllowedCodes`, calcolato da
+  `overlapAllowedCodesOf(catalogPhases)`) e restano alla loro data naturale
+  anche sovrapponendosi ad altre fasi sulla stessa linea.
+  File: `lib/schedule.ts` (`shippingListOf`, `overlapAllowedCodesOf`,
+  `computeScheduledParts` +1 parametro), `types.ts` (`CatalogPhase.
+  canOverlap`, rimosso `Order.shippingList`), `components/GanttChart.tsx`
+  (colonne info per riga, edit inline data, dialog correzione),
+  `components/OverlapAlert.tsx`, `lib/exportPlan.ts`, `pages/Capacita.tsx`,
+  `pages/CommessaDetail.tsx`, `pages/Dashboard.tsx` (tutti aggiornati per
+  passare `overlapAllowedCodes` a `computeScheduledParts`), `pages/
+  Catalogo.tsx` (checkbox + colonna tabella), `pages/Commesse.tsx`
+  (revert del campo manuale). Testato in locale con Playwright (dev
+  server + injection diretta in localStorage): parsing spedizione,
+  sovrapposizione fasi stesso codice/stessa linea, edit data inline e
+  dialog correzione tutti verificati funzionanti. Deploy in produzione.
 - **23/09/2026** — integrazione Kissflow: endpoint `POST /api/kissflow`
   (ingestione commesse/lotti via API, upsert non distruttivo su lotti/fasi
   manuali) + import manuale equivalente in Importa → Commesse da Kissflow

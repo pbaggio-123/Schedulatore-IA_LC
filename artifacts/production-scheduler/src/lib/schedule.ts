@@ -1,9 +1,9 @@
 import {
-  Order, Part, Holiday, Employee,
+  Order, Part, Holiday, Employee, CatalogPhase,
   addWorkingDays, computePartWorkingDays, computeEffectiveHours, isNonWorkingDay,
 } from "@/types";
 
-const DAY_HOURS = 8;
+export const DAY_HOURS = 8;
 
 // Fasi che occupano SEMPRE giornate intere (non si impacchettano con altre nello
 // stesso giorno né condividono lo slot): assemblaggio/cianfrinatura/applicazione.
@@ -78,6 +78,21 @@ export function phaseColor(name: string): string {
   return `hsl(${h % 360}, 62%, 52%)`;
 }
 
+// ── N° lista di spedizione dal nome del lotto ───────────────────────────────
+// Convenzione dei nomi lotto: "252140A2 - 653 - PMU CW09" → codice lotto,
+// N° lista di spedizione (1-4 cifre, a volte "XXX" se non ancora assegnata),
+// descrizione. Riconosciuto automaticamente, nessun campo da compilare a mano.
+export function shippingListOf(lotName: string): string | null {
+  const parts = (lotName ?? "").split(/\s*-\s*/);
+  if (parts.length < 3 || !parts[1]) return null;
+  return parts[1];
+}
+
+// ── Fasi esenti dall'accodamento di linea (Catalogo → "Può sovrapporsi") ────
+export function overlapAllowedCodesOf(catalogPhases: CatalogPhase[]): Set<string> {
+  return new Set(catalogPhases.filter(p => p.canOverlap).map(p => phaseCodeOf(p.name)));
+}
+
 export function computeScheduledParts(
   orders: Order[],
   holidays: Holiday[],
@@ -85,6 +100,10 @@ export function computeScheduledParts(
   // Colore scelto manualmente per CODICE fase (es. {"32A":"#ff0000"}). Se presente
   // vince sul colore automatico. Lo passa il Gantt leggendo i colori del catalogo.
   phaseColors?: Record<string, string>,
+  // Codici fase (Catalogo → "Può sovrapporsi") esenti dall'accodamento di linea:
+  // restano alla loro data naturale anche se un'altra fase della stessa linea ci
+  // si sovrappone, e non spostano in avanti le fasi successive.
+  overlapAllowedCodes?: Set<string>,
 ): ScheduledPart[] {
   const colorOf = (name: string) =>
     phaseColors?.[phaseCodeOf(name)] || phaseColor(name);
@@ -130,7 +149,10 @@ export function computeScheduledParts(
   const lineClock: Record<string, { date: Date; used: number } | null> = { L1: null, L2: null, L3: null };
 
   return rawParts.map(p => {
-    const clock = lineClock[p.line];
+    // Fase esente: resta alla sua data naturale, ignora e non altera il clock
+    // di linea (può sovrapporsi ad altre fasi sulla stessa linea).
+    const exempt = overlapAllowedCodes?.has(phaseCodeOf(p.name)) ?? false;
+    const clock = exempt ? null : lineClock[p.line];
     // Floor: la linea non può iniziare prima dell'inizio naturale della fase.
     let date: Date, used: number;
     if (!clock || clock.date < p.startDate) {
@@ -149,7 +171,8 @@ export function computeScheduledParts(
       if (used > 0) { date = nextWorkingDay(date, holidays, saturdayWorking); used = 0; }
       const days = Math.max(1, Math.ceil(hours / DAY_HOURS));
       const endDate = addWorkingDays(date, days, holidays, saturdayWorking);
-      lineClock[p.line] = { date: endDate, used: 0 }; // la prossima fase riparte da un giorno pulito
+      // la prossima fase riparte da un giorno pulito
+      if (!exempt) lineClock[p.line] = { date: endDate, used: 0 };
       return { ...p, startDate: date, endDate, calendarDays: daysBetween(date, endDate) };
     }
 
@@ -157,13 +180,15 @@ export function computeScheduledParts(
     const touchedDays = Math.max(1, Math.ceil((used + hours) / DAY_HOURS) - Math.floor(used / DAY_HOURS));
     const endDate = addWorkingDays(date, touchedDays, holidays, saturdayWorking);
 
-    // Avanza il clock di `hours` ore lavorative.
-    const total = used + hours;
-    const advance = Math.floor(total / DAY_HOURS);
-    const newUsed = total % DAY_HOURS;
-    let newDate = date;
-    for (let k = 0; k < advance; k++) newDate = nextWorkingDay(newDate, holidays, saturdayWorking);
-    lineClock[p.line] = { date: newDate, used: newUsed };
+    if (!exempt) {
+      // Avanza il clock di `hours` ore lavorative.
+      const total = used + hours;
+      const advance = Math.floor(total / DAY_HOURS);
+      const newUsed = total % DAY_HOURS;
+      let newDate = date;
+      for (let k = 0; k < advance; k++) newDate = nextWorkingDay(newDate, holidays, saturdayWorking);
+      lineClock[p.line] = { date: newDate, used: newUsed };
+    }
 
     return { ...p, startDate: date, endDate, calendarDays: daysBetween(date, endDate) };
   });

@@ -4,7 +4,7 @@ import { useSchedulerData } from "@/hooks/useSchedulerData";
 import { useAuth } from "@/hooks/useAuth";
 import { addAuditEntry } from "@/hooks/useAuditLog";
 import { toast } from "@/hooks/use-toast";
-import { computeScheduledParts, findEmployeeOverlaps, EmployeeOverlap } from "@/lib/schedule";
+import { computeScheduledParts, findEmployeeOverlaps, overlapAllowedCodesOf, EmployeeOverlap } from "@/lib/schedule";
 import { formatISODate } from "@/types";
 
 /**
@@ -14,13 +14,16 @@ import { formatISODate } from "@/types";
  * fase viene posticipata all'inizio successivo alla fine della prima.
  */
 export default function OverlapAlert() {
-  const { orders, setOrders, holidays, saturdayWorking, employees } = useSchedulerData();
+  const { orders, setOrders, holidays, saturdayWorking, employees, catalogPhases } = useSchedulerData();
   const { can } = useAuth();
   const [open, setOpen] = useState(true);
 
   const overlaps = useMemo(
-    () => findEmployeeOverlaps(computeScheduledParts(orders, holidays, saturdayWorking), employees),
-    [orders, holidays, saturdayWorking, employees],
+    () => findEmployeeOverlaps(
+      computeScheduledParts(orders, holidays, saturdayWorking, undefined, overlapAllowedCodesOf(catalogPhases)),
+      employees,
+    ),
+    [orders, holidays, saturdayWorking, employees, catalogPhases],
   );
 
   if (overlaps.length === 0) return null;

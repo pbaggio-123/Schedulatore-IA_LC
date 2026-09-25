@@ -18,6 +18,9 @@ export interface CatalogPhase {
   /** Colore scelto per questa fase nel calendario/Gantt (es. "#ef4444"). Se vuoto
    *  il colore viene generato automaticamente dal codice fase. */
   color?: string;
+  /** Se true, questa fase può sovrapporsi nel tempo ad altre fasi sulla stessa
+   *  linea: non entra nell'accodamento automatico di linea nel Gantt. */
+  canOverlap?: boolean;
 }
 
 export interface CatalogProduct {
@@ -81,8 +84,6 @@ export interface Order {
   startDate: string;
   lots: Lot[];
   color: string;
-  /** N° lista di spedizione (es. "537 - 2026"), mostrata nel Pannello. */
-  shippingList?: string;
   /** Id dell'item Kissflow di origine (assente se la commessa è manuale). */
   kissflowId?: string;
   assignee?: string;
