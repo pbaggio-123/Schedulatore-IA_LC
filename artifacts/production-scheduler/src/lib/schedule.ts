@@ -212,6 +212,57 @@ export function computeScheduledParts(
   });
 }
 
+// ── Buchi di produzione per linea ────────────────────────────────────────────
+// Giorni lavorativi "vuoti" (nessuna fase schedulata su quella linea) compresi
+// fra il primo e l'ultimo giorno di attività della linea stessa: usato per
+// segnalare nel Gantt uno spostamento manuale che lascia un vuoto in mezzo al
+// lavoro già pianificato (non i giorni prima dell'inizio o dopo la fine, che
+// non sono "buchi" ma semplicemente lavoro non ancora iniziato/già finito).
+
+export interface DateRange { startDate: Date; endDate: Date; }
+export interface ProductionGap extends DateRange { line: Part["line"]; }
+
+export function findGapsInDateRanges(
+  ranges: DateRange[],
+  holidays: Holiday[],
+  saturdayWorking: boolean,
+): DateRange[] {
+  if (ranges.length < 2) return [];
+  const gaps: DateRange[] = [];
+  const minStart = ranges.reduce((m, r) => (r.startDate < m ? r.startDate : m), ranges[0].startDate);
+  const maxEnd = ranges.reduce((m, r) => (r.endDate > m ? r.endDate : m), ranges[0].endDate);
+  let cursor = startOfDay(minStart);
+  let gapStart: Date | null = null;
+  while (cursor.getTime() < maxEnd.getTime()) {
+    if (isNonWorkingDay(cursor, holidays, saturdayWorking)) {
+      cursor = new Date(cursor); cursor.setDate(cursor.getDate() + 1);
+      continue;
+    }
+    const occupied = ranges.some(r => cursor >= r.startDate && cursor < r.endDate);
+    if (!occupied) {
+      if (!gapStart) gapStart = new Date(cursor);
+    } else if (gapStart) {
+      gaps.push({ startDate: gapStart, endDate: new Date(cursor) });
+      gapStart = null;
+    }
+    cursor = new Date(cursor); cursor.setDate(cursor.getDate() + 1);
+  }
+  return gaps;
+}
+
+export function findLineGaps(
+  parts: ScheduledPart[],
+  holidays: Holiday[],
+  saturdayWorking: boolean,
+): ProductionGap[] {
+  const gaps: ProductionGap[] = [];
+  (["L1", "L2", "L3"] as const).forEach(line => {
+    const ranges = parts.filter(p => p.line === line).map(p => ({ startDate: p.startDate, endDate: p.endDate }));
+    findGapsInDateRanges(ranges, holidays, saturdayWorking).forEach(r => gaps.push({ line, ...r }));
+  });
+  return gaps;
+}
+
 // ── Sovrapposizioni di persona ────────────────────────────────────────────────
 
 export interface EmployeeOverlap {

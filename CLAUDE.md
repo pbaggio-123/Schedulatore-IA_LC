@@ -347,6 +347,44 @@ Da fare / da verificare:
 Aggiungi qui una riga per sessione: data, cosa hai cambiato, file toccati,
 deployment. Serve alla sessione dopo (tua o di chiunque altro).
 
+- **25/09/2026 (4)** — drag nel Pannello con proposta a cascata + buchi di
+  produzione. Prima: trascinare una fase nel Gantt scriveva subito la nuova
+  `manualStartDate`, e l'accodamento automatico di linea (già esistente,
+  puramente derivato dall'ordinamento per data naturale) spostava le altre
+  fasi della linea in silenzio — l'utente non vedeva l'impatto finché non
+  guardava il Gantt aggiornato. Ora: al rilascio del drag, se lo spostamento
+  fa cambiare la data calcolata di ALTRE fasi sulla stessa linea di
+  destinazione (o lascia un giorno vuoto), si apre un dialog "Proposta nuove
+  date" con l'elenco di tutte le fasi coinvolte e la loro data proposta
+  **editabile** (stesso input della colonna Inizio); editare una riga
+  ricalcola live l'eventuale buco di produzione mostrato in un avviso nel
+  dialog. Annulla = niente viene scritto (il drag è come se non fosse mai
+  avvenuto); Conferma = `manualStartDate` (ed eventuale `line`) di tutte le
+  righe vengono scritte in un solo aggiornamento + una entry di registro per
+  fase cambiata. Se non c'è alcun impatto su altre fasi né un buco, si
+  applica subito come prima (nessun dialog, comportamento invariato per lo
+  spostamento "semplice"). I buchi di produzione sono anche segnalati SEMPRE
+  nel Gantt (non solo appena dopo un drag): fascia arancione tratteggiata +
+  cerchio con "!" su tutta l'altezza della linea nei giorni vuoti compresi
+  fra due fasi già pianificate, cliccabile per riaprire la stessa proposta
+  (pre-compilata per richiudere il buco). Nuove funzioni in `schedule.ts`:
+  `findLineGaps` (scansione giorno per giorno per linea, usa il documento
+  attuale) e `findGapsInDateRanges` (la stessa scansione su un elenco di
+  intervalli qualsiasi, usata per il ricalcolo live nel dialog senza dover
+  rilanciare l'intero motore di scheduling). File: `lib/schedule.ts`,
+  `components/GanttChart.tsx` (nuovo stato `cascadeProposal`, funzioni
+  `buildCascadeProposal`/`applyCascadeRows`/`handleGapClick`, dialog e
+  overlay SVG dei buchi). Nota per chi tocca ancora `commitDrag`: il
+  `<g>` dei buchi ha un `onMouseUp` con `stopPropagation()` per non far
+  scattare anche il toggle-chiusura dell'`onMouseUp` a livello di `<svg>`
+  (stessa causa del bug "click sulla fase non apriva il dialog" di due
+  sessioni fa — `mouseup` e `click` sono eventi distinti, fermarne uno non
+  ferma l'altro). Testato in locale con Playwright: drag con cascata su due
+  fasi (con buco risultante rilevato correttamente), conferma e annulla,
+  click su un buco pre-esistente e sua risoluzione, e verifica di non
+  regressione su toggle-chiusura/edit inline data/dialog correzione ore
+  (questi ultimi già testati nelle sessioni precedenti). Deploy in
+  produzione.
 - **25/09/2026 (3)** — 2 bug segnalati testando la sovrapposizione fasi:
   (1) **azzerare un campo opzionale sincronizzato "tornava indietro" dopo
   pochi secondi** (qui: togliere la spunta di sovrapposizione). Causa reale:

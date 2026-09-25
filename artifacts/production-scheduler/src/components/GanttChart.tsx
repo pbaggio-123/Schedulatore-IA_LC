@@ -7,7 +7,8 @@ import {
 } from "@/types";
 import {
   computeScheduledParts, findEmployeeOverlaps, overlappingPartIds, phaseCodeOf,
-  shippingListOf, overlapMapOf, ScheduledPart, DAY_HOURS,
+  shippingListOf, overlapMapOf, findLineGaps, findGapsInDateRanges,
+  ScheduledPart, ProductionGap, DAY_HOURS,
 } from "@/lib/schedule";
 import { useLocation } from "wouter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -32,6 +33,23 @@ interface DragState {
 }
 
 interface Segment { startDay: number; widthDays: number; }
+
+// Riga della proposta di "spostamento a cascata" (drag che impatta altre fasi
+// sulla stessa linea, o click su un buco di produzione già presente): per
+// ciascuna fase coinvolta, solo la data di inizio proposta è editabile.
+interface CascadeRow {
+  partId: string; orderId: string; lotId: string;
+  name: string; orderName: string; lotName: string;
+  currentDate: string;   // ISO, data attuale (prima della proposta)
+  proposedDate: string;  // ISO, editabile
+  calendarDays: number;  // durata (giorni di calendario), invariata dalla proposta
+  prevLine?: "L1" | "L2" | "L3"; // presenti solo sulla fase trascinata, se
+  newLine?: "L1" | "L2" | "L3";  // lo spostamento ha cambiato anche la linea
+}
+interface CascadeProposal {
+  line: "L1" | "L2" | "L3";
+  rows: CascadeRow[];
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -95,6 +113,9 @@ export default function GanttChart() {
   const [correctionPart, setCorrectionPart] = useState<GanttPart | null>(null);
   const [correctionHours, setCorrectionHours] = useState("0");
   const [correctionDays, setCorrectionDays] = useState("0");
+  // Proposta di spostamento a cascata (drag con impatto su altre fasi, o click
+  // su un buco di produzione): elenco editabile di date proposte per fase.
+  const [cascadeProposal, setCascadeProposal] = useState<CascadeProposal | null>(null);
 
   // Lookup commessa per id, per le colonne informative a sinistra del Gantt.
   const orderById = useMemo(() => new Map(orders.map(o => [o.id, o])), [orders]);
@@ -139,6 +160,30 @@ export default function GanttChart() {
     () => overlappingPartIds(findEmployeeOverlaps(partsWithRow.map(x => x.part), employees)),
     [partsWithRow, employees],
   );
+
+  // Buchi di produzione (giorni vuoti fra fasi già pianificate sulla stessa
+  // linea): evidenziati nel Gantt, cliccabili per riaprire una proposta di
+  // spostamento che li chiuda.
+  const gaps = useMemo(
+    () => findLineGaps(partsWithRow.map(x => x.part), holidays, saturdayWorking),
+    [partsWithRow, holidays, saturdayWorking],
+  );
+
+  // Buchi "live" della proposta aperta: ricalcolati ad ogni modifica di una
+  // data proposta nel dialog, così l'avviso resta sempre coerente con quello
+  // che l'utente sta effettivamente per confermare.
+  const cascadeGaps = useMemo(() => {
+    if (!cascadeProposal) return [];
+    const rowIds = new Set(cascadeProposal.rows.map(r => r.partId));
+    const rowRanges = cascadeProposal.rows.map(r => {
+      const start = new Date(r.proposedDate + "T00:00:00");
+      return { startDate: start, endDate: addDays(start, r.calendarDays) };
+    });
+    const otherRanges = partsWithRow.map(x => x.part)
+      .filter(p => p.line === cascadeProposal.line && !rowIds.has(p.id))
+      .map(p => ({ startDate: p.startDate, endDate: p.endDate }));
+    return findGapsInDateRanges([...otherRanges, ...rowRanges], holidays, saturdayWorking);
+  }, [cascadeProposal, partsWithRow, holidays, saturdayWorking]);
 
   const totalDays   = Math.ceil((maxDate.getTime() - minDate.getTime()) / 86400000);
   const chartWidth  = totalDays * DAY_WIDTH;
@@ -222,6 +267,104 @@ export default function GanttChart() {
     else setHoverDay(null);
   };
 
+  // ── Proposta di spostamento a cascata ────────────────────────────────────────
+  // Calcola l'impatto di un cambio di data (ed eventualmente di linea) su UNA
+  // fase: quali altre fasi della linea di destinazione cambierebbero data di
+  // conseguenza (accodamento automatico) e se si aprirebbe un buco di
+  // produzione. Ritorna null se non c'è alcun impatto (si applica direttamente,
+  // senza dialog — comportamento invariato per lo spostamento "semplice").
+  const buildCascadeProposal = useCallback((
+    changedPartId: string,
+    newDateISO: string,
+    destLine: "L1" | "L2" | "L3",
+    lineChangeFrom?: "L1" | "L2" | "L3",
+  ): CascadeProposal | null => {
+    const phaseColors: Record<string, string> = {};
+    catalogPhases.forEach(ph => { if (ph.color) phaseColors[phaseCodeOf(ph.name)] = ph.color; });
+    const overlapMap = overlapMapOf(catalogPhases);
+    const baseline = computeScheduledParts(orders, holidays, saturdayWorking, phaseColors, overlapMap);
+    const baselineById = new Map(baseline.map(p => [p.id, p]));
+
+    const candidateOrders = orders.map(o => ({
+      ...o,
+      lots: o.lots.map(l => ({
+        ...l,
+        parts: l.parts.map(p => p.id === changedPartId ? { ...p, manualStartDate: newDateISO, line: destLine } : p),
+      })),
+    }));
+    const candidate = computeScheduledParts(candidateOrders, holidays, saturdayWorking, phaseColors, overlapMap);
+    const changedCandidate = candidate.find(p => p.id === changedPartId);
+    if (!changedCandidate) return null;
+
+    const rows: CascadeRow[] = [{
+      partId: changedCandidate.id, orderId: changedCandidate.orderId, lotId: changedCandidate.lotId,
+      name: changedCandidate.name, orderName: changedCandidate.orderName, lotName: changedCandidate.lotName,
+      currentDate: formatISODate(baselineById.get(changedPartId)?.startDate ?? changedCandidate.startDate),
+      proposedDate: formatISODate(changedCandidate.startDate),
+      calendarDays: changedCandidate.calendarDays,
+      ...(lineChangeFrom ? { prevLine: lineChangeFrom, newLine: destLine } : {}),
+    }];
+
+    candidate.filter(p => p.line === destLine && p.id !== changedPartId).forEach(p => {
+      const before = baselineById.get(p.id);
+      if (!before) return;
+      const beforeISO = formatISODate(before.startDate);
+      const afterISO = formatISODate(p.startDate);
+      if (beforeISO !== afterISO) {
+        rows.push({
+          partId: p.id, orderId: p.orderId, lotId: p.lotId,
+          name: p.name, orderName: p.orderName, lotName: p.lotName,
+          currentDate: beforeISO, proposedDate: afterISO, calendarDays: p.calendarDays,
+        });
+      }
+    });
+
+    const candidateGaps = findLineGaps(candidate.filter(p => p.line === destLine), holidays, saturdayWorking);
+    if (rows.length <= 1 && candidateGaps.length === 0) return null;
+
+    return { line: destLine, rows };
+  }, [orders, holidays, saturdayWorking, catalogPhases]);
+
+  // Applica le date (ed eventuale cambio linea) di una proposta confermata.
+  const applyCascadeRows = useCallback((rows: CascadeRow[]) => {
+    setOrders(prev => prev.map(o => ({
+      ...o,
+      lots: o.lots.map(l => ({
+        ...l,
+        parts: l.parts.map(p => {
+          const row = rows.find(r => r.partId === p.id);
+          if (!row) return p;
+          const dateChanged = row.proposedDate !== row.currentDate;
+          const lineChanged = !!row.newLine && row.newLine !== row.prevLine;
+          if (!dateChanged && !lineChanged) return p;
+          return {
+            ...p,
+            ...(dateChanged ? { manualStartDate: row.proposedDate } : {}),
+            ...(lineChanged ? { line: row.newLine! } : {}),
+          };
+        }),
+      })),
+    })));
+    rows.forEach(row => {
+      const dateChanged = row.proposedDate !== row.currentDate;
+      const lineChanged = !!row.newLine && row.newLine !== row.prevLine;
+      if (lineChanged) {
+        addAuditEntry({
+          actionType: "cambio_linea", partId: row.partId, partName: row.name,
+          field: "Linea", previousValue: row.prevLine, newValue: row.newLine,
+          notes: "Spostata via Gantt",
+        });
+      }
+      if (dateChanged) {
+        addAuditEntry({
+          actionType: "cambio_data", partId: row.partId, partName: row.name,
+          field: "Inizio", previousValue: row.currentDate, newValue: row.proposedDate,
+          notes: lineChanged ? "Spostata via Gantt (cambio linea + data)" : "Spostata via Gantt (spostamento a cascata)",
+        });
+      }
+    });
+  }, [setOrders]);
+
   const commitDrag = useCallback((d: DragState) => {
     const newStart = addDays(d.origStartDate, d.currentDeltaDays);
     const lineChanged = d.currentLine !== d.origLine;
@@ -229,15 +372,35 @@ export default function GanttChart() {
     if (!lineChanged && !dateChanged) return; // semplice click, niente da fare
 
     const partName = partsWithRow.find(x => x.part.id === d.partId)?.part.name ?? d.partId;
+    const newStartISO = formatISODate(newStart);
+
+    if (!dateChanged) {
+      // Solo cambio di linea, nessuno spostamento di data: applica subito,
+      // non c'è nessuna cascata di date da proporre.
+      setOrders(prev => prev.map(o => o.id !== d.orderId ? o : {
+        ...o, lots: o.lots.map(l => l.id !== d.lotId ? l : {
+          ...l, parts: l.parts.map(p => p.id !== d.partId ? p : { ...p, line: d.currentLine }),
+        }),
+      }));
+      addAuditEntry({
+        actionType: "cambio_linea", partId: d.partId, partName,
+        field: "Linea", previousValue: d.origLine, newValue: d.currentLine,
+        notes: "Spostata via Gantt",
+      });
+      return;
+    }
+
+    const proposal = buildCascadeProposal(d.partId, newStartISO, d.currentLine, lineChanged ? d.origLine : undefined);
+    if (proposal) { setCascadeProposal(proposal); return; }
+
+    // Nessun impatto su altre fasi né buchi: applica direttamente (comportamento invariato).
     setOrders(prev => prev.map(o => o.id !== d.orderId ? o : {
       ...o, lots: o.lots.map(l => l.id !== d.lotId ? l : {
         ...l, parts: l.parts.map(p => p.id !== d.partId ? p : {
-          ...p, line: d.currentLine, manualStartDate: formatISODate(newStart),
+          ...p, line: d.currentLine, manualStartDate: newStartISO,
         }),
       }),
     }));
-
-    // registra lo spostamento (Gantt → registro condiviso)
     if (lineChanged) {
       addAuditEntry({
         actionType: "cambio_linea", partId: d.partId, partName,
@@ -245,14 +408,33 @@ export default function GanttChart() {
         notes: "Spostata via Gantt",
       });
     }
-    if (dateChanged) {
-      addAuditEntry({
-        actionType: "cambio_data", partId: d.partId, partName,
-        field: "Inizio", previousValue: formatISODate(d.origStartDate), newValue: formatISODate(newStart),
-        notes: "Spostata via Gantt",
-      });
-    }
-  }, [setOrders, partsWithRow]);
+    addAuditEntry({
+      actionType: "cambio_data", partId: d.partId, partName,
+      field: "Inizio", previousValue: formatISODate(d.origStartDate), newValue: newStartISO,
+      notes: "Spostata via Gantt",
+    });
+  }, [setOrders, partsWithRow, buildCascadeProposal]);
+
+  // ── Click su un buco di produzione: propone di richiudere la fase successiva ─
+  const handleGapClick = useCallback((gap: ProductionGap) => {
+    const candidatePart = partsWithRow.map(x => x.part)
+      .find(p => p.line === gap.line && formatISODate(p.startDate) === formatISODate(gap.endDate));
+    if (!candidatePart) return;
+    const newDateISO = formatISODate(gap.startDate);
+    const proposal = buildCascadeProposal(candidatePart.id, newDateISO, gap.line);
+    if (proposal) { setCascadeProposal(proposal); return; }
+    // Nessun impatto su altre fasi: propone comunque la chiusura del buco,
+    // dato che l'utente ha cliccato apposta per risolverlo.
+    setCascadeProposal({
+      line: gap.line,
+      rows: [{
+        partId: candidatePart.id, orderId: candidatePart.orderId, lotId: candidatePart.lotId,
+        name: candidatePart.name, orderName: candidatePart.orderName, lotName: candidatePart.lotName,
+        currentDate: formatISODate(candidatePart.startDate), proposedDate: newDateISO,
+        calendarDays: candidatePart.calendarDays,
+      }],
+    });
+  }, [partsWithRow, buildCascadeProposal]);
 
   // ── Modifica manuale data inizio (colonna "Inizio") ─────────────────────────
   const commitDateEdit = () => {
@@ -328,6 +510,7 @@ export default function GanttChart() {
       {/* Legend */}
       <div className="absolute top-2 right-3 z-10 flex items-center gap-3 text-[10px] font-mono text-muted-foreground bg-card/90 px-2 py-1 rounded border border-border">
         <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-full bg-red-500 text-white text-[8px] font-bold leading-3 text-center">!</span> Persona sovrapposta</span>
+        <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-full bg-orange-500 text-white text-[8px] font-bold leading-3 text-center">!</span> Buco di produzione</span>
         <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-slate-500/30" /> Weekend</span>
         <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-red-500/30" /> Festività</span>
         <span className="opacity-60">Click feriale = chiusura</span>
@@ -477,6 +660,32 @@ export default function GanttChart() {
                   >!</text>
                 </g>
               )}
+            </g>
+          );
+        })}
+
+        {/* ── Buchi di produzione: giorni vuoti fra fasi già pianificate sulla
+             stessa linea. Zona cliccabile: riapre la proposta di spostamento
+             per chiuderlo. ── */}
+        {gaps.map((g, gi) => {
+          const { startRow, rowCount } = lineInfo[g.line];
+          const y = HEADER_HEIGHT + startRow * ROW_HEIGHT;
+          const h = rowCount * ROW_HEIGHT;
+          const x = INFO_PANEL_W + daysBetween(minDate, g.startDate) * DAY_WIDTH;
+          const w = daysBetween(g.startDate, g.endDate) * DAY_WIDTH;
+          const midX = x + w / 2;
+          const canResolve = can("movePhases");
+          return (
+            <g key={`gap-${gi}`}
+              style={{ cursor: canResolve ? "pointer" : "default" }}
+              onMouseUp={e => e.stopPropagation()}
+              onClick={e => { e.stopPropagation(); if (canResolve) handleGapClick(g); }}
+            >
+              <rect x={x} y={y} width={w} height={h}
+                fill="rgba(249,115,22,0.18)" stroke="#f97316" strokeDasharray="4 3" strokeWidth={1.5} />
+              <circle cx={midX} cy={y + h / 2} r={9} fill="#f97316" stroke="white" strokeWidth={1.2} />
+              <text x={midX} y={y + h / 2 + 4} fontSize="12" fontWeight="bold" fill="white" textAnchor="middle"
+                style={{ pointerEvents: "none" }}>!</text>
             </g>
           );
         })}
@@ -761,6 +970,87 @@ export default function GanttChart() {
                     <Button variant="outline" onClick={() => setCorrectionPart(null)}>Annulla</Button>
                     <Button onClick={applyCorrection} data-testid="button-apply-correction">Applica</Button>
                   </div>
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog proposta nuove date (drag con impatto su altre fasi, o click
+           su un buco di produzione già presente) ── */}
+      <Dialog open={!!cascadeProposal} onOpenChange={o => !o && setCascadeProposal(null)}>
+        <DialogContent className="sm:max-w-[560px]">
+          <DialogHeader><DialogTitle>Proposta nuove date — Linea {cascadeProposal?.line}</DialogTitle></DialogHeader>
+          {cascadeProposal && (() => {
+            const otherCount = cascadeProposal.rows.length - 1;
+            const fmt = (iso: string) => new Date(iso + "T00:00:00").toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" });
+            return (
+              <div className="flex flex-col gap-4 py-2">
+                <p className="text-xs text-muted-foreground">
+                  {otherCount > 0
+                    ? `Questo spostamento sposta di conseguenza anche altre ${otherCount} fase/i sulla linea ${cascadeProposal.line} (accodamento automatico). `
+                    : ""}
+                  Puoi correggere la data di inizio proposta per ciascuna fase prima di confermare.
+                </p>
+                {cascadeGaps.length > 0 && (
+                  <div className="flex flex-col gap-1 bg-amber-500/10 border border-amber-500/40 rounded p-2">
+                    {cascadeGaps.map((g, i) => (
+                      <div key={i} className="text-xs text-amber-400 flex items-center gap-1.5">
+                        <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-500 text-white text-[10px] font-bold shrink-0">!</span>
+                        Con queste date resta un buco di produzione sulla linea {cascadeProposal.line} dal{" "}
+                        {g.startDate.toLocaleDateString("it-IT")} al {addDays(g.endDate, -1).toLocaleDateString("it-IT")}.
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="max-h-72 overflow-y-auto border border-border rounded">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-muted text-muted-foreground uppercase sticky top-0">
+                      <tr>
+                        <th className="px-3 py-2">Fase</th>
+                        <th className="px-3 py-2">Attuale</th>
+                        <th className="px-3 py-2">Proposta</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cascadeProposal.rows.map((row, i) => (
+                        <tr key={row.partId} className="border-t border-border">
+                          <td className="px-3 py-2">
+                            <div className="font-bold">{row.name}</div>
+                            <div className="text-muted-foreground">{row.orderName} / {row.lotName}</div>
+                            {row.newLine && row.newLine !== row.prevLine && (
+                              <div className="text-primary">{row.prevLine} → {row.newLine}</div>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-muted-foreground">{fmt(row.currentDate)}</td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="date"
+                              value={row.proposedDate}
+                              onChange={e => {
+                                const v = e.target.value;
+                                setCascadeProposal(prev => prev
+                                  ? { ...prev, rows: prev.rows.map((r, ri) => ri === i ? { ...r, proposedDate: v } : r) }
+                                  : prev);
+                              }}
+                              className="text-xs font-mono bg-background border border-border rounded px-1.5 py-1"
+                              data-testid={`input-cascade-date-${i}`}
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="outline" onClick={() => setCascadeProposal(null)} data-testid="button-cascade-cancel">Annulla</Button>
+                  <Button
+                    onClick={() => { applyCascadeRows(cascadeProposal.rows); setCascadeProposal(null); }}
+                    data-testid="button-cascade-confirm"
+                  >
+                    Conferma
+                  </Button>
                 </div>
               </div>
             );
